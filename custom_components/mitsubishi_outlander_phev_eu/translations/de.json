@@ -1,0 +1,124 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mitsubishi Connect EU",
+        "description": "Zugangsdaten der Mitsubishi Connect App (EU-Version) eingeben.",
+        "data": {
+          "username": "E-Mail-Adresse",
+          "password": "Passwort",
+          "pin": "PIN (4-stellig, aus der App)",
+          "update_interval": "Aktualisierungsintervall (Minuten)"
+        }
+      },
+      "reconfigure": {
+        "title": "Zugangsdaten ändern",
+        "description": "Passwort oder PIN aktualisieren.",
+        "data": {
+          "username": "E-Mail-Adresse",
+          "password": "Neues Passwort",
+          "pin": "PIN (4-stellig)",
+          "update_interval": "Aktualisierungsintervall (Minuten)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ungültige Zugangsdaten. Bitte E-Mail und Passwort prüfen.",
+      "cannot_connect": "Verbindung zur Mitsubishi EU API fehlgeschlagen.",
+      "no_vehicles": "Keine Fahrzeuge auf diesem Konto gefunden.",
+      "unknown": "Unbekannter Fehler. Bitte die Logs prüfen."
+    },
+    "abort": {
+      "already_configured": "Dieses Konto ist bereits konfiguriert.",
+      "reconfigure_successful": "Zugangsdaten erfolgreich aktualisiert."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einstellungen",
+        "description": "Zugangsdaten und Aktualisierungsintervall ändern.",
+        "data": {
+          "username": "E-Mail-Adresse",
+          "password": "Passwort",
+          "pin": "PIN (4-stellig)",
+          "update_interval": "Aktualisierungsintervall (Minuten)"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Ungültige Zugangsdaten. Bitte E-Mail und Passwort prüfen.",
+      "cannot_connect": "Verbindung zur Mitsubishi EU API fehlgeschlagen.",
+      "no_vehicles": "Keine Fahrzeuge auf diesem Konto gefunden.",
+      "unknown": "Unbekannter Fehler. Bitte die Logs prüfen."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_level": {"name": "Batteriestand"},
+      "ev_range": {"name": "Elektrische Reichweite"},
+      "fuel_range": {"name": "Benzin-Reichweite"},
+      "total_range": {"name": "Gesamtreichweite"},
+      "charging_remaining_time": {"name": "Restladezeit"},
+      "odometer": {"name": "Kilometerstand"},
+      "speed": {"name": "Geschwindigkeit"},
+      "target_temperature": {"name": "Zieltemperatur"},
+      "tire_fl_pressure": {"name": "Reifen vorne links"},
+      "tire_fr_pressure": {"name": "Reifen vorne rechts"},
+      "tire_rl_pressure": {"name": "Reifen hinten links"},
+      "tire_rr_pressure": {"name": "Reifen hinten rechts"},
+      "charging_base_cost": {"name": "Ladestrompreis"},
+      "firmware_version": {"name": "TCU Firmware"},
+      "last_trip_distance": {"name": "Letzte Fahrt Entfernung"},
+      "last_trip_duration": {"name": "Letzte Fahrt Dauer"},
+      "last_charge_energy": {"name": "Letzte Ladung Energie"},
+      "last_charge_duration": {"name": "Letzte Ladung Dauer"},
+      "battery_12v": {"name": "12V Batterie"},
+      "vehicle_status": {"name": "Fahrzeugstatus"}
+    },
+    "binary_sensor": {
+      "is_charging": {"name": "Ladevorgang"},
+      "is_plugged_in": {"name": "Ladekabel angeschlossen"},
+      "doors_locked": {"name": "Türverriegelung"},
+      "engine_on": {"name": "Motor läuft"},
+      "ac_on": {"name": "Klimaanlage"},
+      "brake_warning": {"name": "Bremsenwarnung"},
+      "engine_oil_warning": {"name": "Ölstandswarnung"},
+      "mil_warning": {"name": "Motorkontrollleuchte"},
+      "abs_warning": {"name": "ABS-Warnung"},
+      "airbag_warning": {"name": "Airbag-Warnung"},
+      "door_fl_open": {"name": "Tür vorne links"},
+      "door_fr_open": {"name": "Tür vorne rechts"},
+      "door_rl_open": {"name": "Tür hinten links"},
+      "door_rr_open": {"name": "Tür hinten rechts"},
+      "door_hood_open": {"name": "Motorhaube"},
+      "door_trunk_open": {"name": "Heckklappe"},
+      "window_fl_open": {"name": "Fenster vorne links"},
+      "window_fr_open": {"name": "Fenster vorne rechts"},
+      "window_rl_open": {"name": "Fenster hinten links"},
+      "window_rr_open": {"name": "Fenster hinten rechts"},
+      "window_sunroof_open": {"name": "Schiebedach"},
+      "headlights_on": {"name": "Scheinwerfer"},
+      "charging_ready": {"name": "Ladebereit"},
+      "charge_disabled": {"name": "Laden deaktiviert"}
+    },
+    "device_tracker": {
+      "location": {"name": "Standort"}
+    },
+    "switch": {
+      "climate": {"name": "Klimaanlage"},
+      "charging": {"name": "Ladevorgang"}
+    },
+    "button": {
+      "horn": {"name": "Hupe"},
+      "lights": {"name": "Lichthupe"},
+      "refresh": {"name": "Status aktualisieren"}
+    },
+    "lock": {
+      "door_lock": {"name": "Türschloss"}
+    },
+    "climate": {
+      "climate": {"name": "Klimaanlage"}
+    }
+  }
+}

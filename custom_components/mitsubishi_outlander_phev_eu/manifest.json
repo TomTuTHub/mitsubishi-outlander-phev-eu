@@ -1,0 +1,13 @@
+{
+  "domain": "mitsubishi_outlander_phev_eu",
+  "name": "TomTuT Mitsubishi Outlander PHEV EU",
+  "codeowners": ["@TomTuTHub"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/TomTuTHub/tomtut-mitsubishi-outlander-phev-eu",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/TomTuTHub/tomtut-mitsubishi-outlander-phev-eu/issues",
+  "requirements": ["httpx>=0.24.0", "pycryptodome>=3.19.0"],
+  "version": "1.0.0"
+}

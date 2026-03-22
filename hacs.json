@@ -1,0 +1,6 @@
+{
+  "name": "TomTuT Mitsubishi Outlander PHEV EU",
+  "render_readme": true,
+  "homeassistant": "2024.1.0",
+  "hacs": "1.32.0"
+}
