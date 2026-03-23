@@ -723,6 +723,15 @@ class MitsubishiEUClient:
             except (ValueError, TypeError):
                 pass
 
+        # Plausibilitaetscheck: fuel_range darf nicht groesser als total_range sein
+        if state.fuel_range is not None and state.total_range is not None:
+            if state.fuel_range > state.total_range:
+                _LOGGER.debug(
+                    "Benzinreichweite %s km > Gesamtreichweite %s km — verworfen.",
+                    state.fuel_range, state.total_range,
+                )
+                state.fuel_range = None
+
         # Fallback: Benzinreichweite aus Gesamtreichweite - EV-Reichweite ableiten
         if state.fuel_range is None and state.total_range is not None:
             ev = state.ev_range or 0.0
