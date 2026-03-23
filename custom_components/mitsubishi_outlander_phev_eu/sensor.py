@@ -82,7 +82,6 @@ SENSOR_DESCRIPTIONS: tuple[MitsubishiSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.DISTANCE,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:fuel",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.fuel_range,
     ),
     MitsubishiSensorEntityDescription(

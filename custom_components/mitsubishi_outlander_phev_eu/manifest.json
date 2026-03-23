@@ -9,5 +9,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/TomTuTHub/tomtut-mitsubishi-outlander-phev-eu/issues",
   "requirements": ["httpx>=0.24.0", "pycryptodome>=3.19.0"],
-  "version": "1.0.1"
+  "version": "1.0.2"
 }

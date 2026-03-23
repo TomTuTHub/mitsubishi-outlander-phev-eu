@@ -74,7 +74,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="door_fl_open",
         device_class=BinarySensorDeviceClass.DOOR,
         icon="mdi:car-door",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.door_fl_open,
     ),
     MitsubishiBinarySensorDescription(
@@ -82,7 +81,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="door_fr_open",
         device_class=BinarySensorDeviceClass.DOOR,
         icon="mdi:car-door",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.door_fr_open,
     ),
     MitsubishiBinarySensorDescription(
@@ -90,7 +88,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="door_rl_open",
         device_class=BinarySensorDeviceClass.DOOR,
         icon="mdi:car-door",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.door_rl_open,
     ),
     MitsubishiBinarySensorDescription(
@@ -98,7 +95,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="door_rr_open",
         device_class=BinarySensorDeviceClass.DOOR,
         icon="mdi:car-door",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.door_rr_open,
     ),
     MitsubishiBinarySensorDescription(
@@ -106,7 +102,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="door_hood_open",
         device_class=BinarySensorDeviceClass.DOOR,
         icon="mdi:car-lifted-pickup",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.door_hood_open,
     ),
     MitsubishiBinarySensorDescription(
@@ -114,7 +109,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="door_trunk_open",
         device_class=BinarySensorDeviceClass.DOOR,
         icon="mdi:car-back",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.door_trunk_open,
     ),
     # --- Fenster einzeln (deaktiviert, Infos auch im vehicle_status Sensor) ---
@@ -123,7 +117,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="window_fl_open",
         device_class=BinarySensorDeviceClass.WINDOW,
         icon="mdi:car-door",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.window_fl_open,
     ),
     MitsubishiBinarySensorDescription(
@@ -131,7 +124,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="window_fr_open",
         device_class=BinarySensorDeviceClass.WINDOW,
         icon="mdi:car-door",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.window_fr_open,
     ),
     MitsubishiBinarySensorDescription(
@@ -139,7 +131,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="window_rl_open",
         device_class=BinarySensorDeviceClass.WINDOW,
         icon="mdi:car-door",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.window_rl_open,
     ),
     MitsubishiBinarySensorDescription(
@@ -147,7 +138,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="window_rr_open",
         device_class=BinarySensorDeviceClass.WINDOW,
         icon="mdi:car-door",
-        entity_registry_enabled_default=False,
         value_fn=lambda s: s.window_rr_open,
     ),
     MitsubishiBinarySensorDescription(
