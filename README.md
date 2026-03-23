@@ -148,6 +148,12 @@ Credentials and the update interval can be changed at any time via **Settings â†
 
 ---
 
+## Companion Card
+
+For a ready-made dashboard card that displays all key vehicle data at a glance, check out the **[TomTuT Mitsubishi Outlander Card](https://github.com/TomTuTHub/mitsubishi-outlander-card)** â€” battery, range, charging status, GPS address, lock state, climate control and remote commands in one compact Lovelace card.
+
+---
+
 ## Support & Issues
 
 Please report bugs and feature requests at:
