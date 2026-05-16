@@ -6,8 +6,8 @@
 
 Home Assistant custom integration for **Mitsubishi Connect EU** (GOA platform) — monitor and control your Mitsubishi PHEV or EV directly from Home Assistant.
 
-> 📖 **Full setup guide, configuration tips & dashboard:**
-> **[https://www.tomtut.de/tomtut-tomtut-mitsubishi-outlander-phev-eu/](https://www.tomtut.de/tomtut-tomtut-mitsubishi-outlander-phev-eu/)**
+> 📖 **Full setup guide, configuration & dashboard walkthrough (German):**
+> **[https://www.tomtut.de/homeassistant-mitsubishi-outlander-phev-2025/](https://www.tomtut.de/homeassistant-mitsubishi-outlander-phev-2025/)**
 
 > **Disclaimer:** This is an unofficial community project. It is not affiliated with, endorsed by, or supported by Mitsubishi Motors or any of its subsidiaries. Use at your own risk.
 
@@ -40,12 +40,12 @@ Home Assistant custom integration for **Mitsubishi Connect EU** (GOA platform) �
 
 ### Via HACS (recommended)
 
+This integration is available directly in the HACS default store — no custom repository needed.
+
 1. Open HACS in Home Assistant
-2. Go to **Integrations** → click the three-dot menu → **Custom repositories**
-3. Add: `https://github.com/TomTuTHub/tomtut-mitsubishi-outlander-phev-eu` — Category: **Integration**
-4. Search for **TomTuT Mitsubishi Outlander PHEV EU** and click **Download**
-5. Restart Home Assistant
-6. Go to **Settings → Devices & Services → Add Integration** → search for **Mitsubishi Connect EU**
+2. Search for **TomTuT Mitsubishi Outlander PHEV EU** and click **Download**
+3. Restart Home Assistant
+4. Go to **Settings → Devices & Services → Add Integration** → search for **Mitsubishi Connect EU**
 
 ### Manual Installation
 
@@ -157,7 +157,7 @@ For a ready-made dashboard card that displays all key vehicle data at a glance, 
 ## Support & Issues
 
 Please report bugs and feature requests at:
-[https://github.com/TomTuTHub/tomtut-mitsubishi-outlander-phev-eu/issues](https://github.com/TomTuTHub/tomtut-mitsubishi-outlander-phev-eu/issues)
+[https://github.com/TomTuTHub/mitsubishi-outlander-phev-eu/issues](https://github.com/TomTuTHub/mitsubishi-outlander-phev-eu/issues)
 
 ---
 
