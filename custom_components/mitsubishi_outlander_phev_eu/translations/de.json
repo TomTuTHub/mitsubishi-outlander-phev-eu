@@ -120,5 +120,10 @@
     "climate": {
       "climate": {"name": "Klimaanlage"}
     }
+  },
+  "exceptions": {
+    "command_rejected": {
+      "message": "Mitsubishi Connect hat den Befehl {command} abgelehnt (Fehler {code})."
+    }
   }
 }

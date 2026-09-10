@@ -272,6 +272,9 @@ class MitsubishiEUClient:
         self._corr_id = str(uuid.uuid4())
         self._http = httpx.AsyncClient(timeout=30.0)
         self._vehicles_cache: list[dict] = []
+        # errorCode des zuletzt abgelehnten POSTs (None = letzter POST war ok),
+        # damit Entitaeten den Cloud-Fehler im Klartext melden koennen
+        self.last_error_code: str | None = None
         self._internal_vins: dict[str, str] = {}
         self._pin_verified = False
         self._pin_hash: str | None = None
@@ -483,12 +486,16 @@ class MitsubishiEUClient:
             r = await self._http.post(f"{EU_KINTARO_BASE}{endpoint}", content=enc_body, headers=headers)
             rj = r.json()
             if rj.get("state") != "S":
-                _LOGGER.debug("POST %s: error=%s", endpoint, rj.get("errorCode"))
+                error_code = str(rj.get("errorCode") or "unknown")
+                self.last_error_code = error_code
+                _LOGGER.debug("POST %s: error=%s", endpoint, error_code)
                 return None
+            self.last_error_code = None
             if rj.get("payload"):
                 return _decrypt_response(rj["payload"], self._enc_key)
             return rj
         except Exception as err:
+            self.last_error_code = "network"
             _LOGGER.error("POST %s Fehler: %s", endpoint, err)
             return None
 

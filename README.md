@@ -113,7 +113,7 @@ Credentials and the update interval can be changed at any time via **Settings �
 | Entity | Description |
 |---|---|
 | Climate | Start / stop remote climate pre-conditioning |
-| Charging | Start / stop remote charging |
+| Charging | Start remote charging (**no remote stop**, see below) |
 
 ### Buttons
 
@@ -139,6 +139,21 @@ Credentials and the update interval can be changed at any time via **Settings �
 - **Remote commands:** After sending a remote command (e.g. start charging), there is a short delay before the vehicle status reflects the change. The integration waits ~15 seconds before refreshing.
 - **Tire pressure:** The API provides tire pressure in kPa. This integration converts and displays it in Bar. Home Assistant's auto-conversion to kPa is suppressed.
 - **PIN is required:** Remote commands (lock/unlock, horn, lights, climate, charging) require the 4-digit PIN. Without a valid PIN, these commands will fail.
+
+### Stopping a charge
+
+As of 09/2026 Mitsubishi Connect EU offers **no remote charge stop** — neither via the
+API (cloud error `950400`, verified while the car was charging) nor in the official app
+(the "Start charging" button simply greys out while charging). Charging ends by
+**unplugging** the cable or when the **battery is full**.
+
+To interrupt charging on demand, switch your **wallbox** via its Home Assistant
+integration, or set a **charge timer** in the Mitsubishi Connect app.
+
+Since v1.0.4 the `Charging` switch surfaces the cloud error instead of silently
+reverting: a rejected remote command raises a Home Assistant error naming the command
+and the error code returned by Mitsubishi. That applies to all remote commands, so a
+refusal for any other reason (vehicle offline, not plugged in) is visible too.
 
 > ℹ️ **No schedule entities in this integration — by design.**
 >
