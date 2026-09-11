@@ -106,10 +106,10 @@
       "location": {"name": "Standort"}
     },
     "switch": {
-      "climate": {"name": "Klimaanlage"},
-      "charging": {"name": "Ladevorgang"}
+      "climate": {"name": "Klimaanlage"}
     },
     "button": {
+      "start_charge": {"name": "Laden starten"},
       "horn": {"name": "Hupe"},
       "lights": {"name": "Lichthupe"},
       "refresh": {"name": "Status aktualisieren"}

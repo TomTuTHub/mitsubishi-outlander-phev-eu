@@ -106,10 +106,10 @@
       "location": {"name": "Location"}
     },
     "switch": {
-      "climate": {"name": "Climate"},
-      "charging": {"name": "Charging"}
+      "climate": {"name": "Climate"}
     },
     "button": {
+      "start_charge": {"name": "Start charging"},
       "horn": {"name": "Horn"},
       "lights": {"name": "Lights"},
       "refresh": {"name": "Refresh Status"}

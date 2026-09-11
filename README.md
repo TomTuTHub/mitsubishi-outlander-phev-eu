@@ -16,7 +16,7 @@ Home Assistant custom integration for **Mitsubishi Connect EU** (GOA platform) �
 ## Features
 
 - **Battery & Charging** — State of charge, EV range, fuel range, total range, charging status, remaining charge time
-- **Remote Commands** — Start/stop charging, start/stop climate remotely
+- **Remote Commands** — Start charging, start/stop climate remotely
 - **Climate Control** — Target temperature sensor, AC on/off switch
 - **Tire Pressure** — All four wheels in Bar (front-left, front-right, rear-left, rear-right)
 - **Door & Lock Status** — Doors locked binary sensor
@@ -113,12 +113,12 @@ Credentials and the update interval can be changed at any time via **Settings �
 | Entity | Description |
 |---|---|
 | Climate | Start / stop remote climate pre-conditioning |
-| Charging | Start remote charging (**no remote stop**, see below) |
 
 ### Buttons
 
 | Entity | Description |
 |---|---|
+| Start Charging | Start charging remotely (there is no remote stop, see below) |
 | Horn | Trigger the horn remotely |
 | Lights | Flash the lights remotely |
 | Refresh | Force an immediate vehicle status update |
@@ -140,26 +140,41 @@ Credentials and the update interval can be changed at any time via **Settings �
 - **Tire pressure:** The API provides tire pressure in kPa. This integration converts and displays it in Bar. Home Assistant's auto-conversion to kPa is suppressed.
 - **PIN is required:** Remote commands (lock/unlock, horn, lights, climate, charging) require the 4-digit PIN. Without a valid PIN, these commands will fail.
 
-### Stopping a charge
+### Charging: start only
 
 As of 09/2026 Mitsubishi Connect EU offers **no remote charge stop** — neither via the
 API (cloud error `950400`, verified while the car was charging) nor in the official app
 (the "Start charging" button simply greys out while charging). Charging ends by
 **unplugging** the cable or when the **battery is full**.
 
-To interrupt charging on demand, switch your **wallbox** via its Home Assistant
-integration, or set a **charge timer** in the Mitsubishi Connect app.
+That is why charging is exposed as a **button** ("Start Charging"), not as a switch: a
+switch whose off position can never work would be a lie. The current state is available
+as the **`Charging` binary sensor**. To interrupt charging on demand, switch your
+**wallbox** via its Home Assistant integration, or set a **charge timer** in the
+Mitsubishi Connect app.
 
-Since v1.0.4 the `Charging` switch surfaces the cloud error instead of silently
-reverting: a rejected remote command raises a Home Assistant error naming the command
-and the error code returned by Mitsubishi. That applies to all remote commands, so a
-refusal for any other reason (vehicle offline, not plugged in) is visible too.
+If the cloud rejects a remote command — for any reason, not just charging — Home
+Assistant raises an error naming the command and Mitsubishi's error code, instead of
+silently doing nothing (since v1.0.5).
+
+> ⚠️ **Breaking change in v1.0.5**
+>
+> The charging **switch** (`switch.<name>_ladevorgang` / `switch.<name>_charging`) has
+> been **removed** — the cloud cannot stop a charge (see the finding above), so
+> its off position never worked. It is replaced by:
+>
+> - **`button.<name>_laden_starten`** / `button.<name>_start_charging` — starts charging
+> - **`binary_sensor.<name>_ladevorgang`** / `binary_sensor.<name>_charging` — charging state
+>
+> The old switch entity is removed from the entity registry automatically on upgrade.
+> **Automations, scripts and dashboards that call the switch must be updated**: replace
+> `switch.turn_on` with `button.press`, and read the state from the binary sensor.
 
 > ℹ️ **No schedule entities in this integration — by design.**
 >
 > Charge and climate schedule control via the Mitsubishi API is unreliable and caused persistent errors. This integration intentionally does not implement schedule polling or schedule control.
 >
-> If you want time-based automation: use **Home Assistant automations** (trigger on time, call the climate or charging switch) — or use the **Mitsubishi Connect app** directly.
+> If you want time-based automation: use **Home Assistant automations** (trigger on time, call the climate switch or the charging button) — or use the **Mitsubishi Connect app** directly.
 
 ---
 

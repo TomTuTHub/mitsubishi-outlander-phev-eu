@@ -1,6 +1,7 @@
 """Buttons (einmalige Remote-Commands) for Mitsubishi Connect EU."""
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components.button import ButtonEntity
@@ -9,9 +10,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .coordinator import MitsubishiEUEntity
+from .coordinator import MitsubishiEUEntity, raise_command_rejected
 
 _LOGGER = logging.getLogger(__name__)
+DELAYED_REFRESH = 15  # Sekunden warten bevor Status aktualisiert wird
 
 
 async def async_setup_entry(
@@ -25,11 +27,35 @@ async def async_setup_entry(
         vehicle_info = next((v for v in data["vehicles"] if v.get("vin") == vin), {})
         client = data["client"]
         entities += [
+            MitsubishiStartChargeButton(coordinator, vin, vehicle_info, client),
             MitsubishiHornButton(coordinator, vin, vehicle_info, client),
             MitsubishiLightsButton(coordinator, vin, vehicle_info, client),
             MitsubishiRefreshButton(coordinator, vin, vehicle_info, client),
         ]
     async_add_entities(entities)
+
+
+class MitsubishiStartChargeButton(MitsubishiEUEntity, ButtonEntity):
+    """Laden starten.
+
+    Bewusst ein Button und kein Schalter: Mitsubishi Connect EU kennt keinen
+    Fern-Ladestopp (verifiziert 2026-09-10 am ladenden Fahrzeug, errorCode
+    950400; auch die offizielle App bietet nur Start an). Laufender Ladevorgang
+    endet durch Ausstecken oder Vollladung. Status: Binary Sensor "Ladevorgang".
+    """
+
+    def __init__(self, coordinator, vin, vehicle_info, client):
+        super().__init__(coordinator, vin, vehicle_info)
+        self._client = client
+        self._attr_unique_id = f"{vin}_start_charge"
+        self._attr_translation_key = "start_charge"
+        self._attr_icon = "mdi:ev-station"
+
+    async def async_press(self) -> None:
+        if not await self._client.async_start_charging(self._vin):
+            raise_command_rejected(self._client, self._vin, "startCharge")
+        await asyncio.sleep(DELAYED_REFRESH)
+        await self.coordinator.async_request_refresh()
 
 
 class MitsubishiHornButton(MitsubishiEUEntity, ButtonEntity):
@@ -42,7 +68,8 @@ class MitsubishiHornButton(MitsubishiEUEntity, ButtonEntity):
         self._attr_icon = "mdi:bugle"
 
     async def async_press(self) -> None:
-        await self._client.async_horn(self._vin)
+        if not await self._client.async_horn(self._vin):
+            raise_command_rejected(self._client, self._vin, "startHorn")
 
 
 class MitsubishiLightsButton(MitsubishiEUEntity, ButtonEntity):
@@ -55,7 +82,8 @@ class MitsubishiLightsButton(MitsubishiEUEntity, ButtonEntity):
         self._attr_icon = "mdi:car-light-high"
 
     async def async_press(self) -> None:
-        await self._client.async_lights(self._vin)
+        if not await self._client.async_lights(self._vin):
+            raise_command_rejected(self._client, self._vin, "startLight")
 
 
 class MitsubishiRefreshButton(MitsubishiEUEntity, ButtonEntity):
@@ -68,5 +96,6 @@ class MitsubishiRefreshButton(MitsubishiEUEntity, ButtonEntity):
         self._attr_icon = "mdi:refresh"
 
     async def async_press(self) -> None:
-        if await self._client.async_refresh_status(self._vin):
-            await self.coordinator.async_request_refresh()
+        if not await self._client.async_refresh_status(self._vin):
+            raise_command_rejected(self._client, self._vin, "refreshVSR")
+        await self.coordinator.async_request_refresh()
