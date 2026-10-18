@@ -80,3 +80,17 @@ CONF_UPDATE_INTERVAL = "update_interval"
 # Default values
 DEFAULT_UPDATE_INTERVAL = 15  # minutes
 MIN_UPDATE_INTERVAL = 5       # minutes
+
+# Region selection (stored in the config entry; entries without it are EU)
+CONF_REGION = "region"
+REGION_EU = "eu"
+REGION_US = "us"
+REGIONS = [REGION_EU, REGION_US]
+DEFAULT_REGION = REGION_EU
+
+# US API (experimental). Values from the MIT-licensed public client
+# https://github.com/pcartwright81/mitsubishi_connect_client
+US_BASE_URL = "https://us-m.aerpf.com"
+US_REMOTE_PORT = 15443
+US_API_KEY = "3f5547161b5d4bdbbb2bf8b26c69d1de"
+US_BASIC_AUTH = "Basic ZTU4NjUzY2QtMzkxOS00MjYxLWE1N2UtNWYyZjdjMjAwMGRhOmFtcENsaWVudFRydXN0ZWRTZWNyZXQ="

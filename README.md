@@ -36,6 +36,12 @@ Home Assistant custom integration for **Mitsubishi Connect EU** (GOA platform) â
 
 ---
 
+## Regions
+
+When adding the integration you choose a **region**. **Europe** is the default and works exactly as before (existing entries keep running without any change). **United States** is an experimental second region with a reduced feature set (location, odometer, speed, doors, lights, remote climate/engine start/stop, unlock). Battery, charging and tire data are not available there. Untested against a real US account, feedback welcome. US server thanks to the groundwork of pcartwright81 (mitsubishi_connect).
+
+---
+
 ## Installation
 
 ### Via HACS (recommended)

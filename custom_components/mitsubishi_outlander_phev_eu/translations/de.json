@@ -5,6 +5,7 @@
         "title": "Mitsubishi Connect EU",
         "description": "Zugangsdaten der Mitsubishi Connect App (EU-Version) eingeben.",
         "data": {
+          "region": "Region",
           "username": "E-Mail-Adresse",
           "password": "Passwort",
           "pin": "PIN (4-stellig, aus der App)",
@@ -15,6 +16,7 @@
         "title": "Zugangsdaten ändern",
         "description": "Passwort oder PIN aktualisieren.",
         "data": {
+          "region": "Region",
           "username": "E-Mail-Adresse",
           "password": "Neues Passwort",
           "pin": "PIN (4-stellig)",
@@ -124,6 +126,14 @@
   "exceptions": {
     "command_rejected": {
       "message": "Mitsubishi Connect hat den Befehl {command} abgelehnt (Fehler {code})."
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "Europa",
+        "us": "USA (experimentell)"
+      }
     }
   }
 }

@@ -14,19 +14,25 @@ from homeassistant.helpers.selector import (
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
     TextSelector,
     TextSelectorConfig,
     TextSelectorType,
 )
 
-from .api import MitsubishiEUClient
+from .client import create_client
 from .const import (
     DOMAIN,
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_PIN,
+    CONF_REGION,
     CONF_UPDATE_INTERVAL,
+    DEFAULT_REGION,
     DEFAULT_UPDATE_INTERVAL,
+    REGIONS,
     MIN_UPDATE_INTERVAL,
 )
 
@@ -38,8 +44,15 @@ _NUMBER = NumberSelector(NumberSelectorConfig(
     min=MIN_UPDATE_INTERVAL, max=120, step=1, mode=NumberSelectorMode.BOX
 ))
 
+_REGION = SelectSelector(SelectSelectorConfig(
+    options=REGIONS,
+    mode=SelectSelectorMode.DROPDOWN,
+    translation_key="region",
+))
+
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
+        vol.Required(CONF_REGION, default=DEFAULT_REGION): _REGION,
         vol.Required(CONF_USERNAME): _TEXT,
         vol.Required(CONF_PASSWORD): _PASSWORD,
         vol.Required(CONF_PIN): _PASSWORD,
@@ -50,11 +63,7 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
-    client = MitsubishiEUClient(
-        username=data[CONF_USERNAME],
-        password=data[CONF_PASSWORD],
-        pin=data.get(CONF_PIN, ""),
-    )
+    client = create_client(data)
     try:
         if not await client.async_login():
             raise InvalidAuth
@@ -141,6 +150,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="reconfigure",
             data_schema=vol.Schema(
                 {
+                    vol.Required(
+                        CONF_REGION, default=entry.data.get(CONF_REGION, DEFAULT_REGION)
+                    ): _REGION,
                     vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME, "")): _TEXT,
                     vol.Required(CONF_PASSWORD): _PASSWORD,
                     vol.Required(CONF_PIN, default=entry.data.get(CONF_PIN, "")): _PASSWORD,

@@ -5,6 +5,7 @@
         "title": "Mitsubishi Connect EU",
         "description": "Enter your Mitsubishi Connect app credentials (EU version).",
         "data": {
+          "region": "Region",
           "username": "Email address",
           "password": "Password",
           "pin": "PIN (4 digits, from the app)",
@@ -15,6 +16,7 @@
         "title": "Change credentials",
         "description": "Update your password or PIN.",
         "data": {
+          "region": "Region",
           "username": "Email address",
           "password": "New password",
           "pin": "PIN (4 digits)",
@@ -124,6 +126,14 @@
   "exceptions": {
     "command_rejected": {
       "message": "Mitsubishi Connect rejected the command {command} (error {code})."
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "Europe",
+        "us": "United States (experimental)"
+      }
     }
   }
 }

@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import MitsubishiEUClient, VehicleState
+from .client import create_client
 from .const import (
     DOMAIN,
     CONF_USERNAME,
@@ -27,11 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Mitsubishi Connect EU from a config entry."""
-    client = MitsubishiEUClient(
-        username=entry.data[CONF_USERNAME],
-        password=entry.data[CONF_PASSWORD],
-        pin=entry.data.get(CONF_PIN, ""),
-    )
+    client = create_client(entry.data)
 
     if not await client.async_login():
         raise ConfigEntryAuthFailed("Invalid credentials for Mitsubishi Connect EU")
