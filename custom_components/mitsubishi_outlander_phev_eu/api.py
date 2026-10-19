@@ -23,15 +23,8 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
 
 from .const import (
-    EU_AUTH_URL,
-    EU_KINTARO_BASE,
-    EU_CLIENT_ID,
-    EU_CLIENT_SECRET,
-    KINTARO_PKG_NAME,
-    KINTARO_APP_CODE,
-    KINTARO_HASH,
-    KINTARO_SECURITY_KEY,
-    KINTARO_JWT_SIGN,
+    KINTARO_PROFILES,
+    REGION_EU,
     EP_INIT,
     EP_VEHICLE_LIST,
     EP_VSR,
@@ -190,6 +183,9 @@ class VehicleState:
 # Kintaro Krypto
 # ======================================================================
 
+_EU = KINTARO_PROFILES[REGION_EU]
+
+
 def _md5h(s: str) -> str:
     return hashlib.md5(s.encode()).hexdigest()
 
@@ -211,32 +207,32 @@ def _generate_jwt(secret: str) -> str:
     sig = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
     return f"{signing_input}.{_base64url_encode(sig)}"
 
-def _compute_init_sign(nonce: str) -> str:
-    md5_1 = _md5h(KINTARO_APP_CODE + KINTARO_PKG_NAME).upper()
-    md5_2 = _md5h(md5_1 + KINTARO_HASH).lower()
+def _compute_init_sign(nonce: str, p: dict = _EU) -> str:
+    md5_1 = _md5h(p['app_code'] + p['pkg_name']).upper()
+    md5_2 = _md5h(md5_1 + p['hash']).lower()
     asm = md5_2[18:22] + md5_2[0:13] + md5_2[1:5]
     ns = nonce[7:]
     return _sha256h(nonce + ns + ns + asm).upper()
 
-def _decrypt_init_response(payload_b64: str) -> dict:
-    md5_1 = _md5h(KINTARO_APP_CODE + KINTARO_PKG_NAME).upper()
-    md5_2 = _md5h(md5_1 + KINTARO_HASH).lower()
+def _decrypt_init_response(payload_b64: str, p: dict = _EU) -> dict:
+    md5_1 = _md5h(p['app_code'] + p['pkg_name']).upper()
+    md5_2 = _md5h(md5_1 + p['hash']).lower()
     aes_key = md5_2[15:31].encode("ascii")[:16]
-    iv = KINTARO_SECURITY_KEY.encode("ascii")[:16]
+    iv = p['security_key'].encode("ascii")[:16]
     cipher = AES.new(aes_key, AES.MODE_CBC, iv)
     decrypted = unpad(cipher.decrypt(base64.b64decode(payload_b64)), AES.block_size)
     return json.loads(decrypted.decode("utf-8"))
 
-def _encrypt_body(body_plain: str, enc_key: str) -> str:
+def _encrypt_body(body_plain: str, enc_key: str, p: dict = _EU) -> str:
     key = enc_key[:16].encode("ascii")
-    iv = KINTARO_SECURITY_KEY[:16].encode("ascii")
+    iv = p['security_key'][:16].encode("ascii")
     cipher = AES.new(key, AES.MODE_CBC, iv)
     encrypted = cipher.encrypt(pad(body_plain.encode("utf-8"), AES.block_size))
     return base64.b64encode(encrypted).decode("ascii")
 
-def _decrypt_response(payload_b64: str, enc_key: str) -> dict:
+def _decrypt_response(payload_b64: str, enc_key: str, p: dict = _EU) -> dict:
     key = enc_key[:16].encode("ascii")
-    iv = KINTARO_SECURITY_KEY[:16].encode("ascii")
+    iv = p['security_key'][:16].encode("ascii")
     cipher = AES.new(key, AES.MODE_CBC, iv)
     decrypted = unpad(cipher.decrypt(base64.b64decode(payload_b64)), AES.block_size)
     return json.loads(decrypted.decode("utf-8"))
@@ -262,7 +258,8 @@ def _compute_pin_hash(client_nonce_b64: str, server_nonce_b64: str, pin: str) ->
 
 class MitsubishiEUClient:
 
-    def __init__(self, username: str, password: str, pin: str = "") -> None:
+    def __init__(self, username: str, password: str, pin: str = "", region: str = REGION_EU) -> None:
+        self._p = KINTARO_PROFILES[region]
         self._username = username
         self._password = password
         self._pin = pin
@@ -289,13 +286,13 @@ class MitsubishiEUClient:
     async def async_login(self) -> bool:
         try:
             r = await self._http.post(
-                EU_AUTH_URL,
+                self._p['auth_url'],
                 data={
                     "grant_type": "password",
                     "username": self._username,
                     "password": self._password,
-                    "client_id": EU_CLIENT_ID,
-                    "client_secret": EU_CLIENT_SECRET,
+                    "client_id": self._p['client_id'],
+                    "client_secret": self._p['client_secret'],
                 },
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
@@ -320,18 +317,18 @@ class MitsubishiEUClient:
     async def _kintaro_init(self) -> bool:
         try:
             nonce = str(int(time.time() * 1000))
-            sign = _compute_init_sign(nonce)
-            jwt = _generate_jwt(KINTARO_JWT_SIGN)
+            sign = _compute_init_sign(nonce, self._p)
+            jwt = _generate_jwt(self._p['jwt_sign'])
             headers = self._kintaro_headers(nonce, sign)
             headers["knt-app-device-token"] = jwt
 
-            r = await self._http.post(f"{EU_KINTARO_BASE}{EP_INIT}", content="", headers=headers)
+            r = await self._http.post(f"{self._p['kintaro_base']}{EP_INIT}", content="", headers=headers)
             rj = r.json()
             if rj.get("state") != "S":
                 _LOGGER.error("Kintaro Init fehlgeschlagen: %s", rj)
                 return False
 
-            keys = _decrypt_init_response(rj["payload"])
+            keys = _decrypt_init_response(rj["payload"], self._p)
             self._enc_key = keys["encKey"]
             self._sign_key = keys["signKey"]
             self._pin_verified = False
@@ -347,12 +344,12 @@ class MitsubishiEUClient:
             return await self.async_login()
         try:
             r = await self._http.post(
-                EU_AUTH_URL,
+                self._p['auth_url'],
                 data={
                     "grant_type": "refresh_token",
                     "refresh_token": self._token.refresh_token,
-                    "client_id": EU_CLIENT_ID,
-                    "client_secret": EU_CLIENT_SECRET,
+                    "client_id": self._p['client_id'],
+                    "client_secret": self._p['client_secret'],
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded", "User-Agent": "okhttp/4.9.0"},
             )
@@ -426,18 +423,18 @@ class MitsubishiEUClient:
     def _kintaro_headers(self, nonce: str | None = None, sign: str | None = None) -> dict:
         hdrs = {
             "knt-access-token": self._token.access_token,
-            "knt-iso-locale": "de_DE",
-            "knt-timezone": "Europe/Berlin",
+            "knt-iso-locale": self._p["locale"],
+            "knt-timezone": self._p["timezone"],
             "knt-correlation-id": self._corr_id,
-            "knt-app-key": KINTARO_APP_CODE,
+            "knt-app-key": self._p["app_code"],
             "knt-app-os": "ANDROID",
-            "knt-app-version": "1.3.1",
-            "knt-app-unique-id": KINTARO_PKG_NAME,
-            "knt-region": "DE",
+            "knt-app-version": self._p["app_version"],
+            "knt-app-unique-id": self._p["pkg_name"],
+            "knt-region": self._p["knt_region"],
             "Content-Type": "text/plain",
             "knt-req-id": str(uuid.uuid4()),
-            "knt-language": "de",
-            "knt-locale": "de_DE",
+            "knt-language": self._p["language"],
+            "knt-locale": self._p["locale"],
             "knt-device-os-version": "14",
             "knt-device-model": "Pixel 7",
             "User-Agent": "okhttp/4.9.0",
@@ -455,10 +452,10 @@ class MitsubishiEUClient:
             raise ConnectionError(f"Keine gueltige API-Session fuer {endpoint}")
         nonce = str(int(time.time() * 1000))
         qs = "&".join(f"{k}={v}" for k, v in params.items()) if params else ""
-        enc_body = _encrypt_body(qs, self._enc_key)
+        enc_body = _encrypt_body(qs, self._enc_key, self._p)
         sign = _compute_sign(enc_body, nonce, self._sign_key)
         headers = self._kintaro_headers(nonce, sign)
-        url = f"{EU_KINTARO_BASE}{endpoint}?params={urllib.parse.quote(enc_body, safe='')}"
+        url = f"{self._p['kintaro_base']}{endpoint}?params={urllib.parse.quote(enc_body, safe='')}"
         try:
             r = await self._http.get(url, headers=headers)
             rj = r.json()
@@ -466,7 +463,7 @@ class MitsubishiEUClient:
                 _LOGGER.debug("GET %s: error=%s", endpoint, rj.get("errorCode"))
                 return None
             if rj.get("payload"):
-                return _decrypt_response(rj["payload"], self._enc_key)
+                return _decrypt_response(rj["payload"], self._enc_key, self._p)
             return rj
         except Exception as err:
             _LOGGER.error("GET %s Fehler: %s", endpoint, err)
@@ -479,11 +476,11 @@ class MitsubishiEUClient:
             raise ConnectionError(f"Keine gueltige API-Session fuer {endpoint}")
         nonce = str(int(time.time() * 1000))
         body_str = json.dumps(params or {}, separators=(",", ":"))
-        enc_body = _encrypt_body(body_str, self._enc_key)
+        enc_body = _encrypt_body(body_str, self._enc_key, self._p)
         sign = _compute_sign(enc_body, nonce, self._sign_key)
         headers = self._kintaro_headers(nonce, sign)
         try:
-            r = await self._http.post(f"{EU_KINTARO_BASE}{endpoint}", content=enc_body, headers=headers)
+            r = await self._http.post(f"{self._p['kintaro_base']}{endpoint}", content=enc_body, headers=headers)
             rj = r.json()
             if rj.get("state") != "S":
                 error_code = str(rj.get("errorCode") or "unknown")
@@ -492,7 +489,7 @@ class MitsubishiEUClient:
                 return None
             self.last_error_code = None
             if rj.get("payload"):
-                return _decrypt_response(rj["payload"], self._enc_key)
+                return _decrypt_response(rj["payload"], self._enc_key, self._p)
             return rj
         except Exception as err:
             self.last_error_code = "network"

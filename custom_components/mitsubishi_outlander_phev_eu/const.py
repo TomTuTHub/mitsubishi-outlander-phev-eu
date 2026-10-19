@@ -18,6 +18,50 @@ KINTARO_HASH = "EF453267190EA26C4B0A3EBE65E3F391"
 KINTARO_SECURITY_KEY = "dd61b55d76c27f43"
 KINTARO_JWT_SIGN = "dh7RqD9qTgRwqlHaidv3hYLP0BicgkR9"
 
+REGION_EU = "eu"
+REGION_US = "us"
+REGION_JP = "jp"
+
+# Per-region Kintaro/IDM profiles (EU and JP share the same protocol).
+# EU values are byte-identical to the constants above.
+# JP values: static analysis of the JP APK v3.1.0. Everything marked
+# "JP: aus EU uebernommen, unbestaetigt" is copied from EU and not verified.
+KINTARO_PROFILES = {
+    REGION_EU: {
+        "auth_url": EU_AUTH_URL,
+        "kintaro_base": EU_KINTARO_BASE,
+        "client_id": EU_CLIENT_ID,
+        "client_secret": EU_CLIENT_SECRET,
+        "pkg_name": KINTARO_PKG_NAME,
+        "app_code": KINTARO_APP_CODE,
+        "hash": KINTARO_HASH,
+        "security_key": KINTARO_SECURITY_KEY,
+        "jwt_sign": KINTARO_JWT_SIGN,
+        "knt_region": "DE",
+        "locale": "de_DE",
+        "language": "de",
+        "timezone": "Europe/Berlin",
+        "app_version": "1.3.1",
+    },
+    REGION_JP: {
+        "auth_url": "https://idm.prod.goa.mitsubishi-motors.com/oauth/token",
+        "kintaro_base": "https://kintaro.prod.goa.mitsubishi-motors.com/prod",
+        "client_id": "Rn6WysiaR7xDrz39If3d3foQsuHLAjiw",
+        "client_secret": "mZ6nfF2gsdpY8cqBJYKAQt0tKNexOBItEvNLkHclF2Sn3Egf3FwtYnCdSldLT8XE",
+        "app_code": "202411201314294614109",
+        "jwt_sign": "w0kJJQTMZgxFboq4sduXIsOcJwRaTjUI",
+        # JP: aus EU uebernommen, unbestaetigt
+        "pkg_name": KINTARO_PKG_NAME,
+        "hash": KINTARO_HASH,
+        "security_key": KINTARO_SECURITY_KEY,
+        "knt_region": "DE",
+        "locale": "de_DE",
+        "language": "de",
+        "timezone": "Europe/Berlin",
+        "app_version": "1.3.1",
+    },
+}
+
 # Kintaro API endpoints (from decompiled APK InterfaceC2646a.java)
 # --- Init / Auth ---
 EP_INIT = "/service/checkVersion"
@@ -83,9 +127,7 @@ MIN_UPDATE_INTERVAL = 5       # minutes
 
 # Region selection (stored in the config entry; entries without it are EU)
 CONF_REGION = "region"
-REGION_EU = "eu"
-REGION_US = "us"
-REGIONS = [REGION_EU, REGION_US]
+REGIONS = [REGION_EU, REGION_US, REGION_JP]
 DEFAULT_REGION = REGION_EU
 
 # US API (experimental). Values from the MIT-licensed public client

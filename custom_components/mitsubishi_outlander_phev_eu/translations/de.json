@@ -132,7 +132,8 @@
     "region": {
       "options": {
         "eu": "Europa",
-        "us": "USA (experimentell)"
+        "us": "USA (experimentell)",
+        "jp": "Japan / Thailand (experimentell)"
       }
     }
   }

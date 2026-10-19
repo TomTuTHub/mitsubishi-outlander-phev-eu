@@ -11,6 +11,7 @@ from .const import (
     CONF_REGION,
     CONF_USERNAME,
     DEFAULT_REGION,
+    REGION_JP,
     REGION_US,
 )
 
@@ -22,9 +23,14 @@ def get_region(data: Mapping[str, Any]) -> str:
 
 def create_client(data: Mapping[str, Any]):
     """Build the client for a config entry / flow input."""
-    cls = MitsubishiUSClient if get_region(data) == REGION_US else MitsubishiEUClient
-    return cls(
+    region = get_region(data)
+    kwargs = dict(
         username=data[CONF_USERNAME],
         password=data[CONF_PASSWORD],
         pin=data.get(CONF_PIN, ""),
     )
+    if region == REGION_US:
+        return MitsubishiUSClient(**kwargs)
+    if region == REGION_JP:
+        return MitsubishiEUClient(region=REGION_JP, **kwargs)
+    return MitsubishiEUClient(**kwargs)
