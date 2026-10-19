@@ -132,8 +132,9 @@
     "region": {
       "options": {
         "eu": "Europe",
-        "us": "United States (experimental)",
-        "jp": "Japan / Thailand (experimental)"
+        "jp_1": "Japan / Thailand – Variant 1 (experimental)",
+        "jp_2": "Japan / Thailand – Variant 2 (experimental)",
+        "jp_3": "Japan / Thailand – Variant 3 (experimental)"
       }
     }
   }

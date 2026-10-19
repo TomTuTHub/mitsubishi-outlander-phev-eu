@@ -20,7 +20,10 @@ KINTARO_JWT_SIGN = "dh7RqD9qTgRwqlHaidv3hYLP0BicgkR9"
 
 REGION_EU = "eu"
 REGION_US = "us"
-REGION_JP = "jp"
+REGION_JP = "jp"  # legacy id of the first JP beta build == Variante 1
+REGION_JP_1 = "jp_1"
+REGION_JP_2 = "jp_2"
+REGION_JP_3 = "jp_3"
 
 # Per-region Kintaro/IDM profiles (EU and JP share the same protocol).
 # EU values are byte-identical to the constants above.
@@ -46,30 +49,52 @@ KINTARO_PROFILES = {
         "app_version": "1.3.1",
         "kt_cfg": (15, 31, 18, 22, 0, 13, 1, 5, 7, 7),
     },
-    REGION_JP: {
-        "auth_url": "https://idm.prod.goa.mitsubishi-motors.com/oauth/token",
-        "kintaro_base": "https://kintaro.prod.goa.mitsubishi-motors.com/prod",
-        "client_id": "Rn6WysiaR7xDrz39If3d3foQsuHLAjiw",
-        "client_secret": "mZ6nfF2gsdpY8cqBJYKAQt0tKNexOBItEvNLkHclF2Sn3Egf3FwtYnCdSldLT8XE",
-        "app_code": "202411201314294614109",
-        "jwt_sign": "w0kJJQTMZgxFboq4sduXIsOcJwRaTjUI",
-        # aus JP-APK 3.1.0 (AndroidManifest-Paket, interchange_services_jp_prod.json)
-        "pkg_name": "com.mitsubishi_motors.mitsubishimotors",
-        "hash": "EF453267190EA26C4B0A3EBE65E3F391",  # kintaro_hash, identisch zu EU
-        # aus JP-APK 3.1.0: security_key_settings, gleiche Entschluesselung wie EU
-        "security_key": "ba001f70172d159e",
-        "kt_cfg": (13, 29, 1, 28, 8, 13, 7, 10, 3, 3),
-        # aus JP-APK 3.1.0: country_config.json (JP und TH: regionCode "jp", isoLocale "ja-JP")
-        "knt_region": "JP",
-        "region_code": "jp",
-        "user_country": "JP",
-        "locale": "ja-JP",
-        "language": "ja",
-        "app_version": "3.1.0",
-        # Die App sendet die Geraete-Zeitzone (TimeZone.getDefault); Asia/Tokyo ist eine Annahme
-        "timezone": "Asia/Tokyo",
-    },
 }
+
+# --- Japan / Thailand: drei Varianten fuer den Beta-Test -----------------------
+# Belegt (aus JP-APK 3.1.0, in allen Varianten gleich): Hosts, client_id/secret,
+# app_code, jwt_sign, pkg_name, hash, security_key, App-Version, Locale/Sprache.
+# Unbelegt sind nur zwei Dinge, die die Varianten abdecken:
+#  (a) Zuordnung der 10 kt_cfg-Zahlen: AES-Slice [0:2] (Differenz 16 -> eindeutig),
+#      Nonce-Offset [8]/[9] (identisch -> eindeutig). Offen ist nur, wie die drei
+#      Init-Signatur-Paare [2:4],[4:6],[6:8] zu lesen sind. EU nutzt (Start, Ende),
+#      aber JP (1,28) ergaebe 27 Zeichen statt 4 -> Variante 3 liest sie als
+#      (Start, Laenge) statt (Start, Ende).
+#  (b) Header knt-region: die App sendet sicher knt-region-code="jp"; ob zusaetzlich
+#      knt-region="JP" mitgeht (EU: "DE"), ist nur vermutet -> Variante 2 laesst
+#      knt-region weg.
+# Die Zeitzone (Asia/Tokyo) bleibt in allen Varianten gleich: sie beeinflusst weder
+# Init-Signatur noch Verschluesselung, und der Tester sitzt in dieser Zone.
+# V1 = aktueller Stand (Basisannahme), V2 = nur Header anders, V3 = nur Krypto-Lesart
+# anders -> ein Erfolg/Fehlschlag laesst sich genau einer Hypothese zuordnen.
+_JP_BASE = {
+    "auth_url": "https://idm.prod.goa.mitsubishi-motors.com/oauth/token",
+    "kintaro_base": "https://kintaro.prod.goa.mitsubishi-motors.com/prod",
+    "client_id": "Rn6WysiaR7xDrz39If3d3foQsuHLAjiw",
+    "client_secret": "mZ6nfF2gsdpY8cqBJYKAQt0tKNexOBItEvNLkHclF2Sn3Egf3FwtYnCdSldLT8XE",
+    "app_code": "202411201314294614109",
+    "jwt_sign": "w0kJJQTMZgxFboq4sduXIsOcJwRaTjUI",
+    # aus JP-APK 3.1.0 (AndroidManifest-Paket, interchange_services_jp_prod.json)
+    "pkg_name": "com.mitsubishi_motors.mitsubishimotors",
+    "hash": "EF453267190EA26C4B0A3EBE65E3F391",  # kintaro_hash, identisch zu EU
+    # aus JP-APK 3.1.0: security_key_settings, gleiche Entschluesselung wie EU
+    "security_key": "ba001f70172d159e",
+    "kt_cfg": (13, 29, 1, 28, 8, 13, 7, 10, 3, 3),
+    # aus JP-APK 3.1.0: country_config.json (JP und TH: regionCode "jp", isoLocale "ja-JP")
+    "knt_region": "JP",
+    "region_code": "jp",
+    "user_country": "JP",
+    "locale": "ja-JP",
+    "language": "ja",
+    "app_version": "3.1.0",
+    # Die App sendet die Geraete-Zeitzone (TimeZone.getDefault); Asia/Tokyo ist eine Annahme
+    "timezone": "Asia/Tokyo",
+}
+
+KINTARO_PROFILES[REGION_JP_1] = {**_JP_BASE, "variant": 1}
+KINTARO_PROFILES[REGION_JP_2] = {**_JP_BASE, "variant": 2, "omit_headers": ("knt-region",)}
+KINTARO_PROFILES[REGION_JP_3] = {**_JP_BASE, "variant": 3, "kt_slice_mode": "len"}
+KINTARO_PROFILES[REGION_JP] = KINTARO_PROFILES[REGION_JP_1]  # alter Eintrag "jp" = Variante 1
 
 # Kintaro API endpoints (from decompiled APK InterfaceC2646a.java)
 # --- Init / Auth ---
@@ -136,7 +161,8 @@ MIN_UPDATE_INTERVAL = 5       # minutes
 
 # Region selection (stored in the config entry; entries without it are EU)
 CONF_REGION = "region"
-REGIONS = [REGION_EU, REGION_US, REGION_JP]
+# US (api_us.py) bleibt im Repo, ist aber nicht waehlbar: von niemandem bestaetigt.
+REGIONS = [REGION_EU, REGION_JP_1, REGION_JP_2, REGION_JP_3]
 DEFAULT_REGION = REGION_EU
 
 # US API (experimental). Values from the MIT-licensed public client

@@ -11,6 +11,9 @@ from .const import (
     CONF_REGION,
     CONF_USERNAME,
     DEFAULT_REGION,
+    REGION_JP_1,
+    REGION_JP_2,
+    REGION_JP_3,
     REGION_JP,
     REGION_US,
 )
@@ -18,7 +21,7 @@ from .const import (
 
 def get_region(data: Mapping[str, Any]) -> str:
     """Region of a config entry; entries created before region support are EU."""
-    return data.get(CONF_REGION, DEFAULT_REGION)
+    return data.get(CONF_REGION) or DEFAULT_REGION
 
 
 def create_client(data: Mapping[str, Any]):
@@ -31,6 +34,6 @@ def create_client(data: Mapping[str, Any]):
     )
     if region == REGION_US:
         return MitsubishiUSClient(**kwargs)
-    if region == REGION_JP:
-        return MitsubishiEUClient(region=REGION_JP, **kwargs)
+    if region in (REGION_JP, REGION_JP_1, REGION_JP_2, REGION_JP_3):
+        return MitsubishiEUClient(region=region, **kwargs)
     return MitsubishiEUClient(**kwargs)

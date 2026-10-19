@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import logging
+import re
 import secrets
 import time
 import urllib.parse
@@ -214,7 +215,10 @@ def _md5_2(p: dict) -> str:
 def _compute_init_sign(nonce: str, p: dict = _EU) -> str:
     c = p['kt_cfg']
     md5_2 = _md5_2(p)
-    asm = md5_2[c[2]:c[3]] + md5_2[c[4]:c[5]] + md5_2[c[6]:c[7]]
+    if p.get('kt_slice_mode') == 'len':  # JP-Variante 3: (Start, Laenge) statt (Start, Ende)
+        asm = md5_2[c[2]:c[2] + c[3]] + md5_2[c[4]:c[4] + c[5]] + md5_2[c[6]:c[6] + c[7]]
+    else:
+        asm = md5_2[c[2]:c[3]] + md5_2[c[4]:c[5]] + md5_2[c[6]:c[7]]
     ns = nonce[c[8]:]
     return _sha256h(nonce + ns + ns + asm).upper()
 
@@ -255,6 +259,20 @@ def _compute_pin_hash(client_nonce_b64: str, server_nonce_b64: str, pin: str) ->
     return base64.b64encode(xored).decode("ascii")
 
 
+_SECRET_JSON = re.compile(
+    r'("(?:access_token|refresh_token|id_token|token|password|pin|client_secret|'
+    r'payload|encKey|signKey)"\s*:\s*)"[^"]*"', re.I)
+_LONG_TOKEN = re.compile(r'[A-Za-z0-9+/=_\-]{40,}')
+
+
+def _safe_snippet(text: str, limit: int = 200) -> str:
+    """Server-Antwort fuers Log: Secrets/lange Token geschwaerzt, auf ~200 Zeichen gekuerzt."""
+    text = " ".join((text or "").split())
+    text = _SECRET_JSON.sub(r'\1"***"', text)
+    text = _LONG_TOKEN.sub("***", text)
+    return text[:limit] + ("..." if len(text) > limit else "")
+
+
 # ======================================================================
 # API Client
 # ======================================================================
@@ -263,6 +281,11 @@ class MitsubishiEUClient:
 
     def __init__(self, username: str, password: str, pin: str = "", region: str = REGION_EU) -> None:
         self._p = KINTARO_PROFILES[region]
+        self._region = region
+        # Fuer Log-Meldungen: "eu" oder "jp_2"
+        self._label = region + (
+            f" (Variante {self._p['variant']})" if self._p.get("variant") else ""
+        )
         self._username = username
         self._password = password
         self._pin = pin
@@ -303,7 +326,10 @@ class MitsubishiEUClient:
                 },
             )
             if r.status_code != 200:
-                _LOGGER.error("Login fehlgeschlagen: %s", r.status_code)
+                _LOGGER.error(
+                    "Login fehlgeschlagen [Region=%s]: HTTP %s, Antwort: %s",
+                    self._label, r.status_code, _safe_snippet(r.text),
+                )
                 return False
 
             data = r.json()
@@ -326,9 +352,15 @@ class MitsubishiEUClient:
             headers["knt-app-device-token"] = jwt
 
             r = await self._http.post(f"{self._p['kintaro_base']}{EP_INIT}", content="", headers=headers)
-            rj = r.json()
-            if rj.get("state") != "S":
-                _LOGGER.error("Kintaro Init fehlgeschlagen: %s", rj)
+            try:
+                rj = r.json()
+            except ValueError:
+                rj = None
+            if not isinstance(rj, dict) or rj.get("state") != "S":
+                _LOGGER.error(
+                    "Kintaro Init fehlgeschlagen [Region=%s]: HTTP %s, Antwort: %s",
+                    self._label, r.status_code, _safe_snippet(r.text),
+                )
                 return False
 
             keys = _decrypt_init_response(rj["payload"], self._p)
@@ -337,7 +369,10 @@ class MitsubishiEUClient:
             self._pin_verified = False
             return True
         except Exception as err:
-            _LOGGER.error("Kintaro Init Fehler: %s", err)
+            _LOGGER.error(
+                "Kintaro Init Fehler [Region=%s]: %s (Entschluesselung/Antwort unlesbar?)",
+                self._label, _safe_snippet(str(err)),
+            )
             self._enc_key = ""
             self._sign_key = ""
             return False
@@ -447,6 +482,8 @@ class MitsubishiEUClient:
             hdrs["knt-user-country"] = self._p["user_country"]
         if self._p.get("region_code"):
             hdrs["knt-region-code"] = self._p["region_code"]
+        for name in self._p.get("omit_headers", ()):  # JP-Variante 2
+            hdrs.pop(name, None)
         if nonce:
             hdrs["knt-timestamp"] = nonce
         if sign:

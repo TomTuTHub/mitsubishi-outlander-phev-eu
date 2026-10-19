@@ -125,7 +125,8 @@ def test_eu_profile_unchanged():
 
 
 def test_regions_listed():
-    assert const.REGIONS == ["eu", "us", "jp"]
+    assert const.REGIONS == ["eu", "jp_1", "jp_2", "jp_3"]
+    assert "us" not in const.REGIONS
 
 
 def test_jp_login_and_init_use_jp_urls():
@@ -248,3 +249,146 @@ def test_jp_headers_follow_app_and_eu_headers_unchanged():
     eu = factory.create_client(CREDS)._kintaro_headers("1", "s")
     assert "knt-user-country" not in eu and "knt-region-code" not in eu
     assert eu["knt-region"] == "DE" and eu["knt-app-version"] == "1.3.1"
+
+
+# ------------------------------------------- JP-Varianten, US weg, Diagnose
+import json  # noqa: E402
+import logging  # noqa: E402
+
+
+def test_us_not_selectable_nor_translated():
+    pkg = _PKG
+    for f in ("strings.json", "translations/en.json", "translations/de.json"):
+        opts = json.loads((pkg / f).read_text())["selector"]["region"]["options"]
+        assert list(opts) == const.REGIONS and "us" not in opts
+        assert "United States" not in json.dumps(opts) and "USA" not in json.dumps(opts)
+
+
+def test_option_labels_match_regions():
+    for f, word in (("strings.json", "Variant"), ("translations/en.json", "Variant"),
+                    ("translations/de.json", "Variante")):
+        opts = json.loads((_PKG / f).read_text())["selector"]["region"]["options"]
+        for n in (1, 2, 3):
+            assert opts[f"jp_{n}"] == f"Japan / Thailand – {word} {n} (" + \
+                ("experimentell" if word == "Variante" else "experimental") + ")"
+
+
+def test_three_variants_differ_only_where_intended():
+    P = const.KINTARO_PROFILES
+    v1, v2, v3 = P["jp_1"], P["jp_2"], P["jp_3"]
+    assert P["jp"] is v1  # alter Eintrag "jp" == Variante 1
+    shared = ("auth_url", "kintaro_base", "client_id", "client_secret", "app_code",
+              "jwt_sign", "pkg_name", "hash", "security_key", "kt_cfg", "timezone")
+    for k in shared:
+        assert v1[k] == v2[k] == v3[k]
+    assert "omit_headers" not in v1 and "kt_slice_mode" not in v1
+    assert v2["omit_headers"] == ("knt-region",) and "kt_slice_mode" not in v2
+    assert v3["kt_slice_mode"] == "len" and "omit_headers" not in v3
+    for n in ("jp_1", "jp_2", "jp_3", "jp"):
+        assert isinstance(factory.create_client({**CREDS, "region": n}), MitsubishiEUClient)
+
+
+def test_variant_headers_and_signature():
+    h = {n: factory.create_client({**CREDS, "region": n})._kintaro_headers("1", "s")
+         for n in ("jp_1", "jp_2", "jp_3")}
+    assert h["jp_1"]["knt-region"] == "JP" and h["jp_3"]["knt-region"] == "JP"
+    assert "knt-region" not in h["jp_2"]
+    assert h["jp_2"]["knt-region-code"] == "jp" and h["jp_2"]["knt-user-country"] == "JP"
+    P = const.KINTARO_PROFILES
+    s1, s2, s3 = (api_mod._compute_init_sign(_NONCE, P[n]) for n in ("jp_1", "jp_2", "jp_3"))
+    assert s1 == s2 and s1 != s3
+    m2 = api_mod._md5_2(P["jp_3"])
+    asm = m2[1:1 + 28] + m2[8:8 + 13] + m2[7:7 + 10]
+    ns = _NONCE[3:]
+    assert s3 == hashlib.sha256((_NONCE + ns + ns + asm).encode()).hexdigest().upper()
+
+
+def test_eu_signature_unaffected_by_slice_mode():
+    assert "kt_slice_mode" not in const.KINTARO_PROFILES["eu"]
+    assert api_mod._compute_init_sign(_NONCE) == \
+        "DDE3FB9BB1AAD6B607613FE18662B240F5AA6CCBD6D963731BBEF83F64B22827"
+    assert "knt-region" in factory.create_client(CREDS)._kintaro_headers("1", "s")
+
+
+def test_snippet_is_truncated_and_secret_free():
+    secret = "A" * 60
+    txt = ('{"access_token":"abc.def","refresh_token":"r","password":"hunter2","payload":"%s",'
+           '"error":"x"}' % secret) + " pad" * 100
+    out = api_mod._safe_snippet(txt)
+    assert len(out) <= 203
+    for bad in ("abc.def", "hunter2", secret):
+        assert bad not in out
+    assert '"error":"x"' in out
+    assert api_mod._safe_snippet("") == ""
+
+
+class _Resp:
+    def __init__(self, code, text):
+        self.status_code, self.text = code, text
+    def json(self):
+        return json.loads(self.text)
+
+
+def _run_login(region, resp, caplog):
+    c = MitsubishiEUClient("u", "SECRETPW", "1", region=region)
+    class H:
+        async def post(self, url, **kw): return resp
+    c._http = H()
+    caplog.set_level(logging.ERROR)
+    return asyncio.run(c.async_login())
+
+
+def test_login_failure_logs_full_status_region_and_body(caplog):
+    body = '{"error":"invalid_grant","error_description":"bad creds","access_token":"LEAKME"}'
+    assert _run_login("jp_2", _Resp(403, body), caplog) is False
+    msg = caplog.text
+    assert "HTTP 403" in msg and "jp_2 (Variante 2)" in msg and "invalid_grant" in msg
+    assert "LEAKME" not in msg and "SECRETPW" not in msg
+
+
+def test_login_failure_eu_logs_region(caplog):
+    assert _run_login("eu", _Resp(401, "nope"), caplog) is False
+    assert "HTTP 401" in caplog.text and "Region=eu" in caplog.text
+
+
+def test_init_failure_logs_status_and_truncates(caplog):
+    c = MitsubishiEUClient("u", "p", "1", region="jp_3")
+    class H:
+        async def post(self, url, **kw):
+            return _Resp(400, json.dumps({"state": "F", "errorCode": "40012", "msg": "x" * 500}))
+    c._http = H()
+    caplog.set_level(logging.ERROR)
+    assert asyncio.run(c._kintaro_init()) is False
+    assert "HTTP 400" in caplog.text and "jp_3 (Variante 3)" in caplog.text
+    assert "40012" in caplog.text and "x" * 300 not in caplog.text
+
+
+def test_init_non_json_response_is_logged(caplog):
+    c = MitsubishiEUClient("u", "p", "1", region="jp_1")
+    class H:
+        async def post(self, url, **kw): return _Resp(502, "<html>Bad Gateway</html>")
+    c._http = H()
+    caplog.set_level(logging.ERROR)
+    assert asyncio.run(c._kintaro_init()) is False
+    assert "HTTP 502" in caplog.text and "Bad Gateway" in caplog.text
+
+
+# ---- Punkt 4: bestehende EU-Eintraege (ohne region-Feld) -------------------
+def test_existing_entry_data_without_region_runs_as_eu():
+    legacy = {"username": "u", "password": "p", "pin": "1234", "update_interval": 15}
+    assert factory.get_region(legacy) == "eu"
+    c = factory.create_client(legacy)
+    assert c._p is const.KINTARO_PROFILES["eu"] and c._label == "eu"
+    assert factory.get_region({**legacy, "region": None}) == "eu"
+    # Signatur + Header wie vor der Region-Funktion (Golden Values oben)
+    assert c._p["kt_cfg"] == (15, 31, 18, 22, 0, 13, 1, 5, 7, 7)
+    assert c._kintaro_headers("1", "s")["knt-region"] == "DE"
+    assert const.DEFAULT_REGION == "eu"
+
+
+def test_config_flow_source_has_no_forced_region_write():
+    """Der Flow darf bestehende Eintraege nicht anfassen (kein Migration-Schreibzugriff noetig)."""
+    src = (_PKG / "config_flow.py").read_text()
+    assert "async_migrate_entry" not in src
+    init = (_PKG / "__init__.py").read_text()
+    assert "create_client(entry.data)" in init  # Region nur gelesen, nie veraendert

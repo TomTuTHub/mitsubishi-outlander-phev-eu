@@ -22,7 +22,7 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from .client import create_client
+from .client import create_client, get_region
 from .const import (
     DOMAIN,
     CONF_USERNAME,
@@ -33,6 +33,8 @@ from .const import (
     DEFAULT_REGION,
     DEFAULT_UPDATE_INTERVAL,
     REGIONS,
+    REGION_JP,
+    REGION_JP_1,
     MIN_UPDATE_INTERVAL,
 )
 
@@ -59,6 +61,14 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): _NUMBER,
     }
 )
+
+
+def _selectable_region(data: dict[str, Any]) -> str:
+    """Region des Eintrags als Dropdown-Wert ("jp" der ersten Beta = Variante 1)."""
+    region = get_region(data)
+    if region == REGION_JP:
+        return REGION_JP_1
+    return region if region in REGIONS else DEFAULT_REGION
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -151,7 +161,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(
-                        CONF_REGION, default=entry.data.get(CONF_REGION, DEFAULT_REGION)
+                        CONF_REGION, default=_selectable_region(entry.data)
                     ): _REGION,
                     vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME, "")): _TEXT,
                     vol.Required(CONF_PASSWORD): _PASSWORD,
