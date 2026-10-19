@@ -207,17 +207,20 @@ def _generate_jwt(secret: str) -> str:
     sig = hmac.new(secret.encode(), signing_input.encode(), hashlib.sha256).digest()
     return f"{signing_input}.{_base64url_encode(sig)}"
 
-def _compute_init_sign(nonce: str, p: dict = _EU) -> str:
+def _md5_2(p: dict) -> str:
     md5_1 = _md5h(p['app_code'] + p['pkg_name']).upper()
-    md5_2 = _md5h(md5_1 + p['hash']).lower()
-    asm = md5_2[18:22] + md5_2[0:13] + md5_2[1:5]
-    ns = nonce[7:]
+    return _md5h(md5_1 + p['hash']).lower()
+
+def _compute_init_sign(nonce: str, p: dict = _EU) -> str:
+    c = p['kt_cfg']
+    md5_2 = _md5_2(p)
+    asm = md5_2[c[2]:c[3]] + md5_2[c[4]:c[5]] + md5_2[c[6]:c[7]]
+    ns = nonce[c[8]:]
     return _sha256h(nonce + ns + ns + asm).upper()
 
 def _decrypt_init_response(payload_b64: str, p: dict = _EU) -> dict:
-    md5_1 = _md5h(p['app_code'] + p['pkg_name']).upper()
-    md5_2 = _md5h(md5_1 + p['hash']).lower()
-    aes_key = md5_2[15:31].encode("ascii")[:16]
+    c = p['kt_cfg']
+    aes_key = _md5_2(p)[c[0]:c[1]].encode("ascii")[:16]
     iv = p['security_key'].encode("ascii")[:16]
     cipher = AES.new(aes_key, AES.MODE_CBC, iv)
     decrypted = unpad(cipher.decrypt(base64.b64decode(payload_b64)), AES.block_size)
@@ -237,8 +240,8 @@ def _decrypt_response(payload_b64: str, enc_key: str, p: dict = _EU) -> dict:
     decrypted = unpad(cipher.decrypt(base64.b64decode(payload_b64)), AES.block_size)
     return json.loads(decrypted.decode("utf-8"))
 
-def _compute_sign(enc_body: str, nonce: str, sign_key: str) -> str:
-    ns = nonce[7:]
+def _compute_sign(enc_body: str, nonce: str, sign_key: str, p: dict = _EU) -> str:
+    ns = nonce[p['kt_cfg'][8]:]
     sign_input = enc_body + nonce + ns + ns + sign_key
     return _sha256h(sign_input).upper()
 
@@ -439,6 +442,11 @@ class MitsubishiEUClient:
             "knt-device-model": "Pixel 7",
             "User-Agent": "okhttp/4.9.0",
         }
+        # Die App sendet zusaetzlich knt-user-country / knt-region-code (nur JP-Profil)
+        if self._p.get("user_country"):
+            hdrs["knt-user-country"] = self._p["user_country"]
+        if self._p.get("region_code"):
+            hdrs["knt-region-code"] = self._p["region_code"]
         if nonce:
             hdrs["knt-timestamp"] = nonce
         if sign:
@@ -453,7 +461,7 @@ class MitsubishiEUClient:
         nonce = str(int(time.time() * 1000))
         qs = "&".join(f"{k}={v}" for k, v in params.items()) if params else ""
         enc_body = _encrypt_body(qs, self._enc_key, self._p)
-        sign = _compute_sign(enc_body, nonce, self._sign_key)
+        sign = _compute_sign(enc_body, nonce, self._sign_key, self._p)
         headers = self._kintaro_headers(nonce, sign)
         url = f"{self._p['kintaro_base']}{endpoint}?params={urllib.parse.quote(enc_body, safe='')}"
         try:
@@ -477,7 +485,7 @@ class MitsubishiEUClient:
         nonce = str(int(time.time() * 1000))
         body_str = json.dumps(params or {}, separators=(",", ":"))
         enc_body = _encrypt_body(body_str, self._enc_key, self._p)
-        sign = _compute_sign(enc_body, nonce, self._sign_key)
+        sign = _compute_sign(enc_body, nonce, self._sign_key, self._p)
         headers = self._kintaro_headers(nonce, sign)
         try:
             r = await self._http.post(f"{self._p['kintaro_base']}{endpoint}", content=enc_body, headers=headers)

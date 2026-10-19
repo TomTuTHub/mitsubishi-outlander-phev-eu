@@ -172,3 +172,79 @@ def test_sign_depends_on_region_but_eu_default_is_stable():
     eu = api_mod._compute_init_sign(n)
     assert eu == api_mod._compute_init_sign(n, const.KINTARO_PROFILES["eu"])
     assert eu != api_mod._compute_init_sign(n, const.KINTARO_PROFILES["jp"])  # app_code differs
+
+
+# ------------------------------------------------- JP values from the APK
+import base64 as _b64  # noqa: E402
+import hashlib  # noqa: E402
+from Crypto.Cipher import AES  # noqa: E402
+from Crypto.Util.Padding import pad  # noqa: E402
+
+_NONCE = "1700000000000"
+
+
+def _decode_security_key(hex_tail: str) -> str:
+    """Kintaro security_key_settings tail: XOR with sha256(sha256(pkg)) hex, then ROT47."""
+    pkg = b"com.mitsubishi_motors.mitsubishimotors"
+    k = hashlib.sha256(hashlib.sha256(pkg).hexdigest().encode()).hexdigest().encode()
+    x = bytes(c ^ k[i % len(k)] for i, c in enumerate(bytes.fromhex(hex_tail)))
+    return bytes(33 + ((c - 33 + 47) % 94) if 33 <= c <= 126 else c for c in x).decode()
+
+
+def test_eu_signing_output_byte_identical_to_pre_jp_code():
+    """Golden values taken from the code before kt_cfg was introduced."""
+    assert api_mod._compute_init_sign(_NONCE) == \
+        "DDE3FB9BB1AAD6B607613FE18662B240F5AA6CCBD6D963731BBEF83F64B22827"
+    assert api_mod._compute_sign("BODY", _NONCE, "SK") == \
+        "0C562A8D18522F8DDD7A6C23087E4709F594265ABF5FB209B1C175316774707A"
+    assert api_mod._encrypt_body("{}", "0123456789abcdef") == "8myzm12AtJCPT4dV7hVcNQ=="
+
+
+def test_security_key_decoding_reproduces_eu_and_gives_jp():
+    # EU: decoding the APK value reproduces the key that was already in use
+    assert _decode_security_key("56070356505d5054520450555f045604") == const.KINTARO_SECURITY_KEY
+    # JP: same decoding applied to the JP APK value
+    assert _decode_security_key("50003969030e523e5407050159575d50") == \
+        const.KINTARO_PROFILES["jp"]["security_key"] == "ba001f70172d159e"
+
+
+def test_jp_profile_values_from_apk():
+    p = const.KINTARO_PROFILES["jp"]
+    assert p["pkg_name"] == "com.mitsubishi_motors.mitsubishimotors"
+    assert p["hash"] == "EF453267190EA26C4B0A3EBE65E3F391"
+    assert (p["knt_region"], p["locale"], p["language"], p["app_version"]) == \
+        ("JP", "ja-JP", "ja", "3.1.0")
+    assert p["kt_cfg"] == (13, 29, 1, 28, 8, 13, 7, 10, 3, 3)
+    assert const.KINTARO_PROFILES["eu"]["kt_cfg"] == (15, 31, 18, 22, 0, 13, 1, 5, 7, 7)
+    assert all(len(v) == 10 for v in (p["kt_cfg"], const.KINTARO_PROFILES["eu"]["kt_cfg"]))
+    assert p["kt_cfg"][1] - p["kt_cfg"][0] == 16  # AES-128 key slice
+
+
+def test_jp_crypto_uses_jp_slices():
+    p = const.KINTARO_PROFILES["jp"]
+    m2 = api_mod._md5_2(p)
+    # AES key slice [13:29] and IV from the JP security key
+    key = m2[13:29].encode()
+    payload = _b64.b64encode(AES.new(key, AES.MODE_CBC, p["security_key"].encode()).encrypt(
+        pad(b'{"ok":1}', 16))).decode()
+    assert api_mod._decrypt_init_response(payload, p) == {"ok": 1}
+    # init signature: nonce offset 3, slices [1:28]+[8:13]+[7:10]
+    asm = m2[1:28] + m2[8:13] + m2[7:10]
+    ns = _NONCE[3:]
+    assert api_mod._compute_init_sign(_NONCE, p) == \
+        hashlib.sha256((_NONCE + ns + ns + asm).encode()).hexdigest().upper()
+    assert api_mod._compute_sign("B", _NONCE, "K", p) == \
+        hashlib.sha256(("B" + _NONCE + ns + ns + "K").encode()).hexdigest().upper()
+    assert api_mod._compute_init_sign(_NONCE, p) != api_mod._compute_init_sign(_NONCE)
+
+
+def test_jp_headers_follow_app_and_eu_headers_unchanged():
+    jp = factory.create_client({**CREDS, "region": "jp"})._kintaro_headers("1", "s")
+    assert jp["knt-region"] == "JP" and jp["knt-user-country"] == "JP"
+    assert jp["knt-region-code"] == "jp" and jp["knt-iso-locale"] == "ja-JP"
+    assert jp["knt-app-version"] == "3.1.0" and jp["knt-language"] == "ja"
+    assert jp["knt-timezone"] == "Asia/Tokyo"
+    assert jp["knt-app-unique-id"] == "com.mitsubishi_motors.mitsubishimotors"
+    eu = factory.create_client(CREDS)._kintaro_headers("1", "s")
+    assert "knt-user-country" not in eu and "knt-region-code" not in eu
+    assert eu["knt-region"] == "DE" and eu["knt-app-version"] == "1.3.1"

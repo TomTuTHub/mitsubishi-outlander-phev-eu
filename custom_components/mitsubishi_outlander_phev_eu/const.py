@@ -24,8 +24,10 @@ REGION_JP = "jp"
 
 # Per-region Kintaro/IDM profiles (EU and JP share the same protocol).
 # EU values are byte-identical to the constants above.
-# JP values: static analysis of the JP APK v3.1.0. Everything marked
-# "JP: aus EU uebernommen, unbestaetigt" is copied from EU and not verified.
+# JP values: static analysis of the JP APK v3.1.0 (interchange_services_jp_prod.json,
+# AndroidManifest, country_config.json). "kt_cfg" = the ten integers of the
+# Kintaro security_key_settings: kt_cfg[0:2] AES key slice, [2:4]+[4:6]+[6:8] init
+# signature slices of the second MD5, [8]/[9] nonce offset (EU: 15,31,18,22,0,13,1,5,7,7).
 KINTARO_PROFILES = {
     REGION_EU: {
         "auth_url": EU_AUTH_URL,
@@ -42,6 +44,7 @@ KINTARO_PROFILES = {
         "language": "de",
         "timezone": "Europe/Berlin",
         "app_version": "1.3.1",
+        "kt_cfg": (15, 31, 18, 22, 0, 13, 1, 5, 7, 7),
     },
     REGION_JP: {
         "auth_url": "https://idm.prod.goa.mitsubishi-motors.com/oauth/token",
@@ -50,15 +53,21 @@ KINTARO_PROFILES = {
         "client_secret": "mZ6nfF2gsdpY8cqBJYKAQt0tKNexOBItEvNLkHclF2Sn3Egf3FwtYnCdSldLT8XE",
         "app_code": "202411201314294614109",
         "jwt_sign": "w0kJJQTMZgxFboq4sduXIsOcJwRaTjUI",
-        # JP: aus EU uebernommen, unbestaetigt
-        "pkg_name": KINTARO_PKG_NAME,
-        "hash": KINTARO_HASH,
-        "security_key": KINTARO_SECURITY_KEY,
-        "knt_region": "DE",
-        "locale": "de_DE",
-        "language": "de",
-        "timezone": "Europe/Berlin",
-        "app_version": "1.3.1",
+        # aus JP-APK 3.1.0 (AndroidManifest-Paket, interchange_services_jp_prod.json)
+        "pkg_name": "com.mitsubishi_motors.mitsubishimotors",
+        "hash": "EF453267190EA26C4B0A3EBE65E3F391",  # kintaro_hash, identisch zu EU
+        # aus JP-APK 3.1.0: security_key_settings, gleiche Entschluesselung wie EU
+        "security_key": "ba001f70172d159e",
+        "kt_cfg": (13, 29, 1, 28, 8, 13, 7, 10, 3, 3),
+        # aus JP-APK 3.1.0: country_config.json (JP und TH: regionCode "jp", isoLocale "ja-JP")
+        "knt_region": "JP",
+        "region_code": "jp",
+        "user_country": "JP",
+        "locale": "ja-JP",
+        "language": "ja",
+        "app_version": "3.1.0",
+        # Die App sendet die Geraete-Zeitzone (TimeZone.getDefault); Asia/Tokyo ist eine Annahme
+        "timezone": "Asia/Tokyo",
     },
 }
 
