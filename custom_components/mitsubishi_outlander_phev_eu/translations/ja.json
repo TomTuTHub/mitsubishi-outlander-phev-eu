@@ -1,0 +1,245 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Mitsubishi Connect（ヨーロッパ）",
+        "description": "Mitsubishi Connectアプリ（ヨーロッパ版）のログイン情報を入力してください。",
+        "data": {
+          "region": "地域",
+          "username": "メールアドレス",
+          "password": "パスワード",
+          "pin": "PIN（4桁、アプリで設定したもの）",
+          "update_interval": "更新間隔（分）"
+        }
+      },
+      "reconfigure": {
+        "title": "ログイン情報の変更",
+        "description": "パスワードまたはPINを更新します。",
+        "data": {
+          "region": "地域",
+          "username": "メールアドレス",
+          "password": "新しいパスワード",
+          "pin": "PIN（4桁）",
+          "update_interval": "更新間隔（分）"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "ログイン情報が正しくありません。メールアドレスとパスワードをご確認ください。",
+      "cannot_connect": "Mitsubishi APIに接続できませんでした。",
+      "no_vehicles": "このアカウントに車両が見つかりません。",
+      "unknown": "不明なエラーです。ログをご確認ください。"
+    },
+    "abort": {
+      "already_configured": "このアカウントはすでに設定されています。",
+      "reconfigure_successful": "ログイン情報を更新しました。"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "設定",
+        "description": "ログイン情報と更新間隔を変更します。",
+        "data": {
+          "username": "メールアドレス",
+          "password": "パスワード",
+          "pin": "PIN（4桁）",
+          "update_interval": "更新間隔（分）"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "ログイン情報が正しくありません。メールアドレスとパスワードをご確認ください。",
+      "cannot_connect": "Mitsubishi APIに接続できませんでした。",
+      "no_vehicles": "このアカウントに車両が見つかりません。",
+      "unknown": "不明なエラーです。ログをご確認ください。"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "battery_level": {
+        "name": "バッテリー残量"
+      },
+      "ev_range": {
+        "name": "EV航続距離"
+      },
+      "fuel_range": {
+        "name": "燃料での航続距離"
+      },
+      "total_range": {
+        "name": "総航続距離"
+      },
+      "charging_remaining_time": {
+        "name": "充電残り時間"
+      },
+      "odometer": {
+        "name": "走行距離計"
+      },
+      "speed": {
+        "name": "速度"
+      },
+      "target_temperature": {
+        "name": "設定温度"
+      },
+      "tire_fl_pressure": {
+        "name": "タイヤ（左前）"
+      },
+      "tire_fr_pressure": {
+        "name": "タイヤ（右前）"
+      },
+      "tire_rl_pressure": {
+        "name": "タイヤ（左後）"
+      },
+      "tire_rr_pressure": {
+        "name": "タイヤ（右後）"
+      },
+      "charging_base_cost": {
+        "name": "充電の基本料金"
+      },
+      "firmware_version": {
+        "name": "TCUファームウェア"
+      },
+      "last_trip_distance": {
+        "name": "前回の走行距離"
+      },
+      "last_trip_duration": {
+        "name": "前回の走行時間"
+      },
+      "last_charge_energy": {
+        "name": "前回の充電量"
+      },
+      "last_charge_duration": {
+        "name": "前回の充電時間"
+      },
+      "battery_12v": {
+        "name": "12Vバッテリー"
+      },
+      "vehicle_status": {
+        "name": "車両ステータス"
+      }
+    },
+    "binary_sensor": {
+      "is_charging": {
+        "name": "充電中"
+      },
+      "is_plugged_in": {
+        "name": "充電ケーブル接続中"
+      },
+      "doors_locked": {
+        "name": "ドアロック"
+      },
+      "engine_on": {
+        "name": "エンジン作動中"
+      },
+      "ac_on": {
+        "name": "エアコン"
+      },
+      "brake_warning": {
+        "name": "ブレーキ警告"
+      },
+      "engine_oil_warning": {
+        "name": "エンジンオイル警告"
+      },
+      "mil_warning": {
+        "name": "エンジン警告灯"
+      },
+      "abs_warning": {
+        "name": "ABS警告"
+      },
+      "airbag_warning": {
+        "name": "エアバッグ警告"
+      },
+      "door_fl_open": {
+        "name": "ドア（左前）"
+      },
+      "door_fr_open": {
+        "name": "ドア（右前）"
+      },
+      "door_rl_open": {
+        "name": "ドア（左後）"
+      },
+      "door_rr_open": {
+        "name": "ドア（右後）"
+      },
+      "door_hood_open": {
+        "name": "ボンネット"
+      },
+      "door_trunk_open": {
+        "name": "トランク"
+      },
+      "window_fl_open": {
+        "name": "ウィンドウ（左前）"
+      },
+      "window_fr_open": {
+        "name": "ウィンドウ（右前）"
+      },
+      "window_rl_open": {
+        "name": "ウィンドウ（左後）"
+      },
+      "window_rr_open": {
+        "name": "ウィンドウ（右後）"
+      },
+      "window_sunroof_open": {
+        "name": "サンルーフ"
+      },
+      "headlights_on": {
+        "name": "ヘッドライト"
+      },
+      "charging_ready": {
+        "name": "充電可能"
+      },
+      "charge_disabled": {
+        "name": "充電無効"
+      }
+    },
+    "device_tracker": {
+      "location": {
+        "name": "位置情報"
+      }
+    },
+    "switch": {
+      "climate": {
+        "name": "エアコン操作"
+      }
+    },
+    "button": {
+      "start_charge": {
+        "name": "充電開始"
+      },
+      "horn": {
+        "name": "ホーン"
+      },
+      "lights": {
+        "name": "ライト"
+      },
+      "refresh": {
+        "name": "ステータス更新"
+      }
+    },
+    "lock": {
+      "door_lock": {
+        "name": "ドアロック"
+      }
+    },
+    "climate": {
+      "climate": {
+        "name": "エアコン操作"
+      }
+    }
+  },
+  "exceptions": {
+    "command_rejected": {
+      "message": "Mitsubishi Connectがコマンド {command} を拒否しました（エラー {code}）。"
+    }
+  },
+  "selector": {
+    "region": {
+      "options": {
+        "eu": "ヨーロッパ",
+        "jp_1": "日本 / タイ – バリアント 1（試験的）",
+        "jp_2": "日本 / タイ – バリアント 2（試験的）",
+        "jp_3": "日本 / タイ – バリアント 3（試験的）"
+      }
+    }
+  }
+}
