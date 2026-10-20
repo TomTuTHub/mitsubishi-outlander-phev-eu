@@ -1,6 +1,7 @@
 """Client factory: picks the API client for the configured region."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Mapping
 
 from .api import MitsubishiEUClient
@@ -19,9 +20,21 @@ from .const import (
 )
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
 def get_region(data: Mapping[str, Any]) -> str:
-    """Region of a config entry; entries created before region support are EU."""
-    return data.get(CONF_REGION) or DEFAULT_REGION
+    """Region of a config entry; entries created before region support are EU.
+
+    "jp_3" (Variante 3, in v1.1.0b3 entfernt) faellt auf jp_1 zurueck."""
+    region = data.get(CONF_REGION) or DEFAULT_REGION
+    if region == REGION_JP_3:
+        _LOGGER.info(
+            "Region jp_3 (Variante 3) gibt es seit v1.1.0b3 nicht mehr, nutze jp_1. "
+            "Bitte den Eintrag ueber 'Neu konfigurieren' auf Variante 1 oder 2 stellen."
+        )
+        return REGION_JP_1
+    return region
 
 
 def create_client(data: Mapping[str, Any]):
@@ -34,6 +47,6 @@ def create_client(data: Mapping[str, Any]):
     )
     if region == REGION_US:
         return MitsubishiUSClient(**kwargs)
-    if region in (REGION_JP, REGION_JP_1, REGION_JP_2, REGION_JP_3):
+    if region in (REGION_JP, REGION_JP_1, REGION_JP_2):
         return MitsubishiEUClient(region=region, **kwargs)
     return MitsubishiEUClient(**kwargs)

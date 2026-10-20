@@ -38,7 +38,7 @@ Home Assistant custom integration for **Mitsubishi Connect EU** (GOA platform) â
 
 ## Regions
 
-When adding the integration you choose a **region**. **Europe** is the default and works exactly as before (existing entries keep running without any change). **United States** is an experimental second region with a reduced feature set (location, odometer, speed, doors, lights, remote climate/engine start/stop, unlock). Battery, charging and tire data are not available there. Untested against a real US account, feedback welcome. US server thanks to the groundwork of pcartwright81 (mitsubishi_connect).
+When adding the integration you choose a **region**. **Europe** is the default and works exactly as before (existing entries keep running without any change). **Japan / Thailand** is experimental and comes in two variants (Variant 1 and 2, they differ only in one request header); if one does not log in, try the other. Entries created with the removed "Variant 3" run as Variant 1.
 
 ---
 
@@ -181,6 +181,19 @@ silently doing nothing (since v1.0.5).
 > Charge and climate schedule control via the Mitsubishi API is unreliable and caused persistent errors. This integration intentionally does not implement schedule polling or schedule control.
 >
 > If you want time-based automation: use **Home Assistant automations** (trigger on time, call the climate switch or the charging button) â€” or use the **Mitsubishi Connect app** directly.
+
+### Debug log
+
+If something does not work, switch on the debug log in `configuration.yaml`, restart Home Assistant and look at **Settings > System > Logs**:
+
+```yaml
+logger:
+  default: warning
+  logs:
+    custom_components.mitsubishi_outlander_phev_eu: debug
+```
+
+Every request is logged with method, endpoint name, region, HTTP status and duration in ms. Tokens, passwords and the PIN are never logged. Endpoints that fail or time out only produce a warning (with endpoint, region and status or timeout); the matching entities show as unavailable and the rest keeps working. Only a failed login or an empty vehicle list stops the setup.
 
 ---
 

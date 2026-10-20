@@ -23,7 +23,7 @@ REGION_US = "us"
 REGION_JP = "jp"  # legacy id of the first JP beta build == Variante 1
 REGION_JP_1 = "jp_1"
 REGION_JP_2 = "jp_2"
-REGION_JP_3 = "jp_3"
+REGION_JP_3 = "jp_3"  # entfernt (v1.1.0b3); alte Eintraege laufen als jp_1
 
 # Per-region Kintaro/IDM profiles (EU and JP share the same protocol).
 # EU values are byte-identical to the constants above.
@@ -51,7 +51,7 @@ KINTARO_PROFILES = {
     },
 }
 
-# --- Japan / Thailand: drei Varianten fuer den Beta-Test -----------------------
+# --- Japan / Thailand: zwei Varianten fuer den Beta-Test (V3 entfaellt: scheiterte im Test) -----------------------
 # Belegt (aus JP-APK 3.1.0, in allen Varianten gleich): Hosts, client_id/secret,
 # app_code, jwt_sign, pkg_name, hash, security_key, App-Version, Locale/Sprache.
 # Unbelegt sind nur zwei Dinge, die die Varianten abdecken:
@@ -65,8 +65,7 @@ KINTARO_PROFILES = {
 #      knt-region weg.
 # Die Zeitzone (Asia/Tokyo) bleibt in allen Varianten gleich: sie beeinflusst weder
 # Init-Signatur noch Verschluesselung, und der Tester sitzt in dieser Zone.
-# V1 = aktueller Stand (Basisannahme), V2 = nur Header anders, V3 = nur Krypto-Lesart
-# anders -> ein Erfolg/Fehlschlag laesst sich genau einer Hypothese zuordnen.
+# V1 = aktueller Stand (Basisannahme), V2 = nur Header anders.
 _JP_BASE = {
     "auth_url": "https://idm.prod.goa.mitsubishi-motors.com/oauth/token",
     "kintaro_base": "https://kintaro.prod.goa.mitsubishi-motors.com/prod",
@@ -93,7 +92,6 @@ _JP_BASE = {
 
 KINTARO_PROFILES[REGION_JP_1] = {**_JP_BASE, "variant": 1}
 KINTARO_PROFILES[REGION_JP_2] = {**_JP_BASE, "variant": 2, "omit_headers": ("knt-region",)}
-KINTARO_PROFILES[REGION_JP_3] = {**_JP_BASE, "variant": 3, "kt_slice_mode": "len"}
 KINTARO_PROFILES[REGION_JP] = KINTARO_PROFILES[REGION_JP_1]  # alter Eintrag "jp" = Variante 1
 
 # Kintaro API endpoints (from decompiled APK InterfaceC2646a.java)
@@ -162,7 +160,7 @@ MIN_UPDATE_INTERVAL = 5       # minutes
 # Region selection (stored in the config entry; entries without it are EU)
 CONF_REGION = "region"
 # US (api_us.py) bleibt im Repo, ist aber nicht waehlbar: von niemandem bestaetigt.
-REGIONS = [REGION_EU, REGION_JP_1, REGION_JP_2, REGION_JP_3]
+REGIONS = [REGION_EU, REGION_JP_1, REGION_JP_2]
 DEFAULT_REGION = REGION_EU
 
 # US API (experimental). Values from the MIT-licensed public client
@@ -171,3 +169,24 @@ US_BASE_URL = "https://us-m.aerpf.com"
 US_REMOTE_PORT = 15443
 US_API_KEY = "3f5547161b5d4bdbbb2bf8b26c69d1de"
 US_BASIC_AUTH = "Basic ZTU4NjUzY2QtMzkxOS00MjYxLWE1N2UtNWYyZjdjMjAwMGRhOmFtcENsaWVudFRydXN0ZWRTZWNyZXQ="
+
+# Quelle (Status-Endpoint) je Entity-Key: faellt die Quelle technisch aus
+# (Timeout/Netz/HTTP-Fehler), ist die Entity unavailable statt einen Scheinwert zu zeigen.
+ENTITY_SOURCE = {
+    **{k: "vsr" for k in (
+        "ev_range", "total_range", "fuel_range", "odometer", "speed", "battery_12v",
+        "tire_fl_pressure", "tire_fr_pressure", "tire_rl_pressure", "tire_rr_pressure",
+        "doors_locked", "door_fl_open", "door_fr_open", "door_rl_open", "door_rr_open",
+        "door_hood_open", "door_trunk_open", "window_fl_open", "window_fr_open",
+        "window_rl_open", "window_rr_open", "window_sunroof_open", "headlights_on",
+        "brake_warning", "engine_oil_warning", "mil_warning", "abs_warning", "airbag_warning")},
+    **{k: "charge" for k in (
+        "battery_level", "is_charging", "is_plugged_in", "charging_ready",
+        "charge_disabled", "charging_remaining_time")},
+    "target_temperature": "climate", "ac_on": "climate",
+    "engine_on": "engine",
+    "charging_base_cost": "cost",
+    "firmware_version": "firmware",
+    "last_trip_distance": "mileage", "last_trip_duration": "mileage",
+    "last_charge_energy": "charging_history", "last_charge_duration": "charging_history",
+}

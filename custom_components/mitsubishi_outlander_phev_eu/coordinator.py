@@ -7,7 +7,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, ENTITY_SOURCE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,6 +61,22 @@ class MitsubishiEUEntity(CoordinatorEntity):
             model=f"{model_name} {model_year}".strip(),
             serial_number=vin,
         )
+
+    # Quelle fuer Entities ohne entity_description (z. B. Tracker, Statuszusammenfassung)
+    _source: str | None = None
+
+    @property
+    def available(self) -> bool:
+        """Unavailable, wenn der zugehoerige Status-Endpoint technisch ausgefallen ist."""
+        if not super().available:
+            return False
+        state = self.coordinator.data
+        failed = getattr(state, "failed_sources", None)
+        if not failed:
+            return True
+        key = getattr(getattr(self, "entity_description", None), "key", None)
+        source = self._source or ENTITY_SOURCE.get(key)
+        return source not in failed
 
     @property
     def vehicle_state(self):

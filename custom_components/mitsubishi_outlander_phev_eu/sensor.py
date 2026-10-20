@@ -326,6 +326,7 @@ class MitsubishiVehicleStatusSensor(MitsubishiEUEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_translation_key = "vehicle_status"
     _attr_icon = "mdi:car-info"
+    _source = "vsr"
 
     def __init__(self, coordinator, vin, vehicle_info):
         super().__init__(coordinator, vin, vehicle_info)

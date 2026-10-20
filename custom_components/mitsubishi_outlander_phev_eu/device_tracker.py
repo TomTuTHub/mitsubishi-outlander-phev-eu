@@ -26,6 +26,8 @@ async def async_setup_entry(
 class MitsubishiDeviceTracker(MitsubishiEUEntity, TrackerEntity):
     """Track vehicle location."""
 
+    _source = "location"
+
     def __init__(self, coordinator, vin, vehicle_info):
         super().__init__(coordinator, vin, vehicle_info)
         self._attr_unique_id = f"{vin}_location"

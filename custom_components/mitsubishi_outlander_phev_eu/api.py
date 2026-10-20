@@ -64,6 +64,13 @@ _LOGGER = logging.getLogger(__name__)
 
 TOKEN_EXPIRY_MARGIN = timedelta(minutes=5)
 
+# Explizite Timeouts fuer jeden HTTP-Request (sonst haengt ein stiller Server
+# bis Home Assistant das Setup abbricht)
+HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+# Zeitbudget fuer die optionalen Status-Endpoints pro Abfrage: ist es aufgebraucht,
+# werden die restlichen uebersprungen statt weitere Timeouts aufzustapeln
+STATUS_BUDGET_S = 30.0
+
 
 # ======================================================================
 # Datenmodelle
@@ -178,6 +185,9 @@ class VehicleState:
     # Meta
     last_updated: str = ""
     raw_data: dict = field(default_factory=dict)
+    # Quellen (vsr, charge, ...), die in dieser Abfrage technisch ausgefallen sind
+    # (Timeout/Netz/HTTP-Fehler/unlesbar) -> zugehoerige Entities sind unavailable
+    failed_sources: set = field(default_factory=set)
 
 
 # ======================================================================
@@ -215,10 +225,7 @@ def _md5_2(p: dict) -> str:
 def _compute_init_sign(nonce: str, p: dict = _EU) -> str:
     c = p['kt_cfg']
     md5_2 = _md5_2(p)
-    if p.get('kt_slice_mode') == 'len':  # JP-Variante 3: (Start, Laenge) statt (Start, Ende)
-        asm = md5_2[c[2]:c[2] + c[3]] + md5_2[c[4]:c[4] + c[5]] + md5_2[c[6]:c[6] + c[7]]
-    else:
-        asm = md5_2[c[2]:c[3]] + md5_2[c[4]:c[5]] + md5_2[c[6]:c[7]]
+    asm = md5_2[c[2]:c[3]] + md5_2[c[4]:c[5]] + md5_2[c[6]:c[7]]
     ns = nonce[c[8]:]
     return _sha256h(nonce + ns + ns + asm).upper()
 
@@ -293,7 +300,7 @@ class MitsubishiEUClient:
         self._enc_key: str | None = None
         self._sign_key: str | None = None
         self._corr_id = str(uuid.uuid4())
-        self._http = httpx.AsyncClient(timeout=30.0)
+        self._http = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
         self._vehicles_cache: list[dict] = []
         # errorCode des zuletzt abgelehnten POSTs (None = letzter POST war ok),
         # damit Entitaeten den Cloud-Fehler im Klartext melden koennen
@@ -301,6 +308,35 @@ class MitsubishiEUClient:
         self._internal_vins: dict[str, str] = {}
         self._pin_verified = False
         self._pin_hash: str | None = None
+        self._warned: set = set()
+
+    def _warn_once(self, key, msg: str, *args) -> None:
+        """Warnung je Ursache nur einmal, danach Debug (kein Log-Spam bei jedem Poll)."""
+        if key in self._warned:
+            _LOGGER.debug(msg, *args)
+        else:
+            self._warned.add(key)
+            _LOGGER.warning(msg, *args)
+
+    async def _send(self, method: str, name: str, url: str, **kwargs):
+        """Ein HTTP-Request mit Zeitmessung. Loggt (Debug) Methode, Endpoint-Name,
+        Region, Status, Dauer - nie URL-Query, Header, Body, Token, Passwort, PIN.
+        Netz-/Timeout-Fehler werden hier als Warnung geloggt und weitergereicht."""
+        t0 = time.monotonic()
+        try:
+            r = await getattr(self._http, method.lower())(url, **kwargs)
+        except httpx.HTTPError as err:
+            ms = int((time.monotonic() - t0) * 1000)
+            kind = "Timeout" if isinstance(err, httpx.TimeoutException) else "Netzwerkfehler"
+            _LOGGER.warning(
+                "%s %s [Region=%s]: %s (%s) nach %d ms",
+                method, name, self._label, kind, type(err).__name__, ms,
+            )
+            raise
+        ms = int((time.monotonic() - t0) * 1000)
+        _LOGGER.debug("%s %s [Region=%s] -> HTTP %s in %d ms",
+                      method, name, self._label, r.status_code, ms)
+        return r
 
     async def async_close(self) -> None:
         await self._http.aclose()
@@ -311,8 +347,8 @@ class MitsubishiEUClient:
 
     async def async_login(self) -> bool:
         try:
-            r = await self._http.post(
-                self._p['auth_url'],
+            r = await self._send(
+                "POST", "oauth/token(login)", self._p['auth_url'],
                 data={
                     "grant_type": "password",
                     "username": self._username,
@@ -351,7 +387,7 @@ class MitsubishiEUClient:
             headers = self._kintaro_headers(nonce, sign)
             headers["knt-app-device-token"] = jwt
 
-            r = await self._http.post(f"{self._p['kintaro_base']}{EP_INIT}", content="", headers=headers)
+            r = await self._send("POST", EP_INIT, f"{self._p['kintaro_base']}{EP_INIT}", content="", headers=headers)
             try:
                 rj = r.json()
             except ValueError:
@@ -381,8 +417,8 @@ class MitsubishiEUClient:
         if not self._token.refresh_token:
             return await self.async_login()
         try:
-            r = await self._http.post(
-                self._p['auth_url'],
+            r = await self._send(
+                "POST", "oauth/token(refresh)", self._p['auth_url'],
                 data={
                     "grant_type": "refresh_token",
                     "refresh_token": self._token.refresh_token,
@@ -490,8 +526,11 @@ class MitsubishiEUClient:
             hdrs["knt-sign"] = sign
         return hdrs
 
-    async def _kintaro_get(self, endpoint: str, params: dict | None = None) -> dict | None:
-        """GET mit Query-String-Format."""
+    async def _kintaro_get_ex(self, endpoint: str, params: dict | None = None) -> tuple[dict | None, bool]:
+        """GET mit Query-String-Format. Liefert (Daten|None, technisch_ausgefallen).
+
+        "technisch ausgefallen" = Timeout, Netzfehler, HTTP-Fehler oder unlesbare Antwort.
+        Eine saubere Server-Ablehnung (HTTP 200, state != S) ist nur "keine Daten"."""
         if not await self._ensure_token():
             _LOGGER.error("GET %s abgebrochen — keine gueltige Session", endpoint)
             raise ConnectionError(f"Keine gueltige API-Session fuer {endpoint}")
@@ -501,18 +540,33 @@ class MitsubishiEUClient:
         sign = _compute_sign(enc_body, nonce, self._sign_key, self._p)
         headers = self._kintaro_headers(nonce, sign)
         url = f"{self._p['kintaro_base']}{endpoint}?params={urllib.parse.quote(enc_body, safe='')}"
+        status = None
         try:
-            r = await self._http.get(url, headers=headers)
+            r = await self._send("GET", endpoint, url, headers=headers)
+            status = r.status_code
             rj = r.json()
             if rj.get("state") != "S":
-                _LOGGER.debug("GET %s: error=%s", endpoint, rj.get("errorCode"))
-                return None
+                self._warn_once(
+                    ("GET", endpoint, status, rj.get("errorCode")),
+                    "GET %s [Region=%s]: abgelehnt, HTTP %s, errorCode=%s",
+                    endpoint, self._label, status, rj.get("errorCode"),
+                )
+                return None, status != 200
             if rj.get("payload"):
-                return _decrypt_response(rj["payload"], self._enc_key, self._p)
-            return rj
+                return _decrypt_response(rj["payload"], self._enc_key, self._p), False
+            return rj, False
+        except httpx.HTTPError:
+            return None, True  # _send hat Timeout/Netzfehler schon geloggt
         except Exception as err:
-            _LOGGER.error("GET %s Fehler: %s", endpoint, err)
-            return None
+            _LOGGER.warning(
+                "GET %s [Region=%s]: Antwort unlesbar, HTTP %s: %s",
+                endpoint, self._label, status, _safe_snippet(str(err)),
+            )
+            return None, True
+
+    async def _kintaro_get(self, endpoint: str, params: dict | None = None) -> dict | None:
+        """GET mit Query-String-Format."""
+        return (await self._kintaro_get_ex(endpoint, params))[0]
 
     async def _kintaro_post(self, endpoint: str, params: dict | None = None) -> dict | None:
         """POST mit JSON-Format."""
@@ -524,21 +578,33 @@ class MitsubishiEUClient:
         enc_body = _encrypt_body(body_str, self._enc_key, self._p)
         sign = _compute_sign(enc_body, nonce, self._sign_key, self._p)
         headers = self._kintaro_headers(nonce, sign)
+        status = None
         try:
-            r = await self._http.post(f"{self._p['kintaro_base']}{endpoint}", content=enc_body, headers=headers)
+            r = await self._send("POST", endpoint, f"{self._p['kintaro_base']}{endpoint}", content=enc_body, headers=headers)
+            status = r.status_code
             rj = r.json()
             if rj.get("state") != "S":
                 error_code = str(rj.get("errorCode") or "unknown")
                 self.last_error_code = error_code
-                _LOGGER.debug("POST %s: error=%s", endpoint, error_code)
+                self._warn_once(
+                    ("POST", endpoint, status, error_code),
+                    "POST %s [Region=%s]: abgelehnt, HTTP %s, errorCode=%s",
+                    endpoint, self._label, status, error_code,
+                )
                 return None
             self.last_error_code = None
             if rj.get("payload"):
                 return _decrypt_response(rj["payload"], self._enc_key, self._p)
             return rj
+        except httpx.HTTPError:
+            self.last_error_code = "network"  # _send hat schon geloggt
+            return None
         except Exception as err:
             self.last_error_code = "network"
-            _LOGGER.error("POST %s Fehler: %s", endpoint, err)
+            _LOGGER.warning(
+                "POST %s [Region=%s]: Antwort unlesbar, HTTP %s: %s",
+                endpoint, self._label, status, _safe_snippet(str(err)),
+            )
             return None
 
     # ------------------------------------------------------------------
@@ -570,6 +636,23 @@ class MitsubishiEUClient:
         state.internal_vin = internal_vin
         params = {"vin": vin, "internalVin": internal_vin}
 
+        deadline = time.monotonic() + STATUS_BUDGET_S
+
+        async def _opt(source: str, endpoint: str, p: dict) -> dict | None:
+            """Optionaler Endpoint: Fehler/Timeout -> Warnung + weiter ohne diese Daten."""
+            if time.monotonic() > deadline:
+                state.failed_sources.add(source)
+                self._warn_once(
+                    ("budget", endpoint),
+                    "GET %s [Region=%s]: uebersprungen, Zeitbudget von %d s fuer die Statusabfrage aufgebraucht",
+                    endpoint, self._label, int(STATUS_BUDGET_S),
+                )
+                return None
+            data, failed = await self._kintaro_get_ex(endpoint, p)
+            if failed:
+                state.failed_sources.add(source)
+            return data
+
         # PIN verifizieren damit Location und Remote-Commands funktionieren
         await self._ensure_pin(vin)
 
@@ -579,31 +662,31 @@ class MitsubishiEUClient:
                 break
 
         # VSR — Kilometerstand, Reifendruck, Warnungen, Tueren
-        vsr = await self._kintaro_get(EP_VSR, params)
+        vsr = await _opt("vsr", EP_VSR, params)
         if vsr:
             state.raw_data["vsr"] = vsr
             state = self._parse_vsr(vsr, state)
 
         # Ladestatus
-        charge = await self._kintaro_get(EP_CHARGE_DETAILS, params)
+        charge = await _opt("charge", EP_CHARGE_DETAILS, params)
         if charge:
             state.raw_data["charge"] = charge
             state = self._parse_charge(charge, state)
 
         # Klimaanlage
-        climate = await self._kintaro_get(EP_CLIMATE_DETAILS, params)
+        climate = await _opt("climate", EP_CLIMATE_DETAILS, params)
         if climate:
             state.raw_data["climate"] = climate
             state = self._parse_climate(climate, state)
 
         # Motor
-        engine = await self._kintaro_get(EP_ENGINE_DETAILS, params)
+        engine = await _opt("engine", EP_ENGINE_DETAILS, params)
         if engine:
             state.raw_data["engine"] = engine
             state.engine_on = engine.get("isEngineOn", False) is True
 
         # Ladekosten
-        cost = await self._kintaro_get(EP_CHARGING_BASE_COST, params)
+        cost = await _opt("cost", EP_CHARGING_BASE_COST, params)
         if cost:
             state.raw_data["cost"] = cost
             try:
@@ -612,7 +695,7 @@ class MitsubishiEUClient:
                 pass
 
         # Firmware
-        fw = await self._kintaro_get(EP_FIRMWARE_STATUS, params)
+        fw = await _opt("firmware", EP_FIRMWARE_STATUS, params)
         if fw:
             state.raw_data["firmware"] = fw
             installed = fw.get("installed", [])
@@ -622,10 +705,19 @@ class MitsubishiEUClient:
         # Location (POST — braucht pinHash im Body)
         if self._pin_hash:
             await self._ensure_pin(vin)
-        loc = await self._kintaro_post(EP_VEHICLE_LOCATION, {
-            "vin": vin, "internalVin": internal_vin,
-            **({"pinHash": self._pin_hash} if self._pin_hash else {}),
-        })
+        loc = None
+        if time.monotonic() > deadline:
+            state.failed_sources.add("location")
+            self._warn_once(("budget", EP_VEHICLE_LOCATION),
+                            "POST %s [Region=%s]: uebersprungen, Zeitbudget aufgebraucht",
+                            EP_VEHICLE_LOCATION, self._label)
+        else:
+            loc = await self._kintaro_post(EP_VEHICLE_LOCATION, {
+                "vin": vin, "internalVin": internal_vin,
+                **({"pinHash": self._pin_hash} if self._pin_hash else {}),
+            })
+            if loc is None and self.last_error_code == "network":
+                state.failed_sources.add("location")
         if loc:
             state.raw_data["location"] = loc
             state = self._parse_location(loc, state)
@@ -633,7 +725,7 @@ class MitsubishiEUClient:
         # Letzte Fahrt (getMileageHistory — braucht startDate/endDate)
         now = datetime.now()
         month_ago = now - timedelta(days=30)
-        mileage = await self._kintaro_get(EP_MILEAGE_HISTORY, {
+        mileage = await _opt("mileage", EP_MILEAGE_HISTORY, {
             **params,
             "startDate": month_ago.strftime("%Y-%m-%d"),
             "endDate": now.strftime("%Y-%m-%d"),
@@ -657,7 +749,7 @@ class MitsubishiEUClient:
                     pass
 
         # Ladehistorie (getChargingHistory — braucht start/end Params)
-        charge_hist = await self._kintaro_get(EP_CHARGING_HISTORY, {
+        charge_hist = await _opt("charging_history", EP_CHARGING_HISTORY, {
             **params,
             "start": month_ago.strftime("%Y-%m-%d"),
             "end": now.strftime("%Y-%m-%d"),
@@ -680,7 +772,7 @@ class MitsubishiEUClient:
                     pass
 
         # Geofence-Einstellungen
-        geo = await self._kintaro_get(EP_GEOFENCE_ALERT, params)
+        geo = await _opt("geofence", EP_GEOFENCE_ALERT, params)
         if geo:
             state.raw_data["geofence"] = geo
             geo_data = geo.get("data", geo)
@@ -691,7 +783,7 @@ class MitsubishiEUClient:
                 pass
 
         # Speed Alert
-        spd_alert = await self._kintaro_get(EP_SPEED_ALERT, params)
+        spd_alert = await _opt("speed_alert", EP_SPEED_ALERT, params)
         if spd_alert:
             state.raw_data["speed_alert"] = spd_alert
             state.speed_alert_unit = spd_alert.get("speedUnit", "")

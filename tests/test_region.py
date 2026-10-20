@@ -125,7 +125,7 @@ def test_eu_profile_unchanged():
 
 
 def test_regions_listed():
-    assert const.REGIONS == ["eu", "jp_1", "jp_2", "jp_3"]
+    assert const.REGIONS == ["eu", "jp_1", "jp_2"]
     assert "us" not in const.REGIONS
 
 
@@ -268,39 +268,35 @@ def test_option_labels_match_regions():
     for f, word in (("strings.json", "Variant"), ("translations/en.json", "Variant"),
                     ("translations/de.json", "Variante")):
         opts = json.loads((_PKG / f).read_text())["selector"]["region"]["options"]
-        for n in (1, 2, 3):
+        for n in (1, 2):
             assert opts[f"jp_{n}"] == f"Japan / Thailand – {word} {n} (" + \
                 ("experimentell" if word == "Variante" else "experimental") + ")"
 
 
-def test_three_variants_differ_only_where_intended():
+def test_two_variants_differ_only_where_intended():
     P = const.KINTARO_PROFILES
-    v1, v2, v3 = P["jp_1"], P["jp_2"], P["jp_3"]
+    v1, v2 = P["jp_1"], P["jp_2"]
+    assert "jp_3" not in P
     assert P["jp"] is v1  # alter Eintrag "jp" == Variante 1
     shared = ("auth_url", "kintaro_base", "client_id", "client_secret", "app_code",
               "jwt_sign", "pkg_name", "hash", "security_key", "kt_cfg", "timezone")
     for k in shared:
-        assert v1[k] == v2[k] == v3[k]
+        assert v1[k] == v2[k]
     assert "omit_headers" not in v1 and "kt_slice_mode" not in v1
     assert v2["omit_headers"] == ("knt-region",) and "kt_slice_mode" not in v2
-    assert v3["kt_slice_mode"] == "len" and "omit_headers" not in v3
-    for n in ("jp_1", "jp_2", "jp_3", "jp"):
+    for n in ("jp_1", "jp_2", "jp"):
         assert isinstance(factory.create_client({**CREDS, "region": n}), MitsubishiEUClient)
 
 
 def test_variant_headers_and_signature():
     h = {n: factory.create_client({**CREDS, "region": n})._kintaro_headers("1", "s")
-         for n in ("jp_1", "jp_2", "jp_3")}
-    assert h["jp_1"]["knt-region"] == "JP" and h["jp_3"]["knt-region"] == "JP"
+         for n in ("jp_1", "jp_2")}
+    assert h["jp_1"]["knt-region"] == "JP"
     assert "knt-region" not in h["jp_2"]
     assert h["jp_2"]["knt-region-code"] == "jp" and h["jp_2"]["knt-user-country"] == "JP"
     P = const.KINTARO_PROFILES
-    s1, s2, s3 = (api_mod._compute_init_sign(_NONCE, P[n]) for n in ("jp_1", "jp_2", "jp_3"))
-    assert s1 == s2 and s1 != s3
-    m2 = api_mod._md5_2(P["jp_3"])
-    asm = m2[1:1 + 28] + m2[8:8 + 13] + m2[7:7 + 10]
-    ns = _NONCE[3:]
-    assert s3 == hashlib.sha256((_NONCE + ns + ns + asm).encode()).hexdigest().upper()
+    s1, s2 = (api_mod._compute_init_sign(_NONCE, P[n]) for n in ("jp_1", "jp_2"))
+    assert s1 == s2
 
 
 def test_eu_signature_unaffected_by_slice_mode():
@@ -352,14 +348,14 @@ def test_login_failure_eu_logs_region(caplog):
 
 
 def test_init_failure_logs_status_and_truncates(caplog):
-    c = MitsubishiEUClient("u", "p", "1", region="jp_3")
+    c = MitsubishiEUClient("u", "p", "1", region="jp_2")
     class H:
         async def post(self, url, **kw):
             return _Resp(400, json.dumps({"state": "F", "errorCode": "40012", "msg": "x" * 500}))
     c._http = H()
     caplog.set_level(logging.ERROR)
     assert asyncio.run(c._kintaro_init()) is False
-    assert "HTTP 400" in caplog.text and "jp_3 (Variante 3)" in caplog.text
+    assert "HTTP 400" in caplog.text and "jp_2 (Variante 2)" in caplog.text
     assert "40012" in caplog.text and "x" * 300 not in caplog.text
 
 
