@@ -35,6 +35,8 @@ from .const import (
     REGIONS,
     REGION_JP,
     REGION_JP_1,
+    CONF_WAKE_ON_POLL,
+    DEFAULT_WAKE_ON_POLL,
     MIN_UPDATE_INTERVAL,
 )
 
@@ -73,7 +75,7 @@ def _selectable_region(data: dict[str, Any]) -> str:
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
-    client = create_client(data)
+    client = create_client(data, use_ha_ssl=True)
     try:
         if not await client.async_login():
             raise InvalidAuth
@@ -221,7 +223,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 )
                 return self.async_create_entry(
                     title="",
-                    data={CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL]},
+                    data={
+                        CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
+                        CONF_WAKE_ON_POLL: user_input.get(CONF_WAKE_ON_POLL, DEFAULT_WAKE_ON_POLL),
+                    },
                 )
 
         return self.async_show_form(
@@ -244,6 +249,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             self._config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
                         ),
                     ): _NUMBER,
+                    vol.Optional(
+                        CONF_WAKE_ON_POLL,
+                        default=self._config_entry.options.get(
+                            CONF_WAKE_ON_POLL, DEFAULT_WAKE_ON_POLL
+                        ),
+                    ): bool,
                 }
             ),
             errors=errors,

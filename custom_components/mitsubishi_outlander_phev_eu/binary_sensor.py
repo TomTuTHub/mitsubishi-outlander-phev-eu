@@ -47,7 +47,8 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[MitsubishiBinarySensorDescription, ...] = (
         translation_key="doors_locked",
         device_class=BinarySensorDeviceClass.LOCK,
         icon="mdi:car-door-lock",
-        value_fn=lambda s: not s.doors_locked if s.doors_locked is not None else False,
+        # LOCK-Klasse: on = entriegelt. Unbekannt (None) bleibt None statt geraten "verriegelt".
+        value_fn=lambda s: None if s.doors_locked is None else not s.doors_locked,
     ),
     # =================================================================
     # PRIMARY — deaktiviert

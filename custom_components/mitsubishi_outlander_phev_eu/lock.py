@@ -48,9 +48,8 @@ class MitsubishiDoorLock(MitsubishiEUEntity, LockEntity):
             return self._optimistic_state
         if self.vehicle_state is None:
             return None
-        # doorLockSts ist oft leer — dann "locked" annehmen statt None (ausgegraut)
-        if self.vehicle_state.doors_locked is None:
-            return True
+        # Kein Raten: meldet das Auto keinen Schlosszustand (doorLockSts leer,
+        # lockStatus fehlt), bleibt der Zustand "unbekannt" (None).
         return self.vehicle_state.doors_locked
 
     async def async_lock(self, **kwargs) -> None:

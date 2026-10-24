@@ -39,12 +39,16 @@
     "step": {
       "init": {
         "title": "Settings",
-        "description": "Change credentials and update interval.",
+        "description": "Change credentials and settings.",
         "data": {
           "username": "Email address",
           "password": "Password",
           "pin": "PIN (4 digits)",
-          "update_interval": "Update interval (minutes)"
+          "update_interval": "Update interval (minutes)",
+          "wake_on_poll": "Wake the car on every update"
+        },
+        "data_description": {
+          "wake_on_poll": "Wake the car when polling. Turn off to protect the 12 V battery and to avoid disturbing the official app; the data is then only as old as the last report from the car. The Update status button still wakes the car."
         }
       }
     },
@@ -132,8 +136,7 @@
     "region": {
       "options": {
         "eu": "Europe",
-        "jp_1": "Japan / Thailand – Variant 1 (experimental)",
-        "jp_2": "Japan / Thailand – Variant 2 (experimental)"
+        "jp_1": "Japan / Thailand"
       }
     }
   }

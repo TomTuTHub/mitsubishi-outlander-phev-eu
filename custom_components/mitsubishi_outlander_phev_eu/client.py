@@ -26,18 +26,26 @@ _LOGGER = logging.getLogger(__name__)
 def get_region(data: Mapping[str, Any]) -> str:
     """Region of a config entry; entries created before region support are EU.
 
-    "jp_3" (Variante 3, in v1.1.0b3 entfernt) faellt auf jp_1 zurueck."""
+    "jp_2" (entfernt in v1.1.0b4) und "jp_3" (entfernt in v1.1.0b3) fallen still
+    auf jp_1 zurueck."""
     region = data.get(CONF_REGION) or DEFAULT_REGION
-    if region == REGION_JP_3:
-        _LOGGER.info(
-            "Region jp_3 (Variante 3) gibt es seit v1.1.0b3 nicht mehr, nutze jp_1. "
-            "Bitte den Eintrag ueber 'Neu konfigurieren' auf Variante 1 oder 2 stellen."
-        )
+    if region in (REGION_JP_2, REGION_JP_3):
+        _LOGGER.info("Region %s gibt es nicht mehr, nutze jp_1 (Japan / Thailand).", region)
         return REGION_JP_1
     return region
 
 
-def create_client(data: Mapping[str, Any]):
+def _ssl_context():
+    """Von Home Assistant vorgewaermter SSL-Kontext (kein Zertifikat-Laden im Event-Loop).
+    None, wenn HA-Helfer nicht verfuegbar (z. B. in Offline-Tests)."""
+    try:
+        from homeassistant.util.ssl import client_context
+    except ImportError:
+        return None
+    return client_context()
+
+
+def create_client(data: Mapping[str, Any], use_ha_ssl: bool = False):
     """Build the client for a config entry / flow input."""
     region = get_region(data)
     kwargs = dict(
@@ -45,8 +53,10 @@ def create_client(data: Mapping[str, Any]):
         password=data[CONF_PASSWORD],
         pin=data.get(CONF_PIN, ""),
     )
+    # use_ha_ssl=True nur aus dem Event-Loop aufrufen (Setup / Config-Flow)
+    kwargs["ssl_context"] = _ssl_context() if use_ha_ssl else None
     if region == REGION_US:
         return MitsubishiUSClient(**kwargs)
-    if region in (REGION_JP, REGION_JP_1, REGION_JP_2):
+    if region in (REGION_JP, REGION_JP_1):
         return MitsubishiEUClient(region=region, **kwargs)
     return MitsubishiEUClient(**kwargs)

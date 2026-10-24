@@ -60,7 +60,7 @@ def _login_request(region, user, pw):
     return c, seen
 
 
-@pytest.mark.parametrize("region", ["eu", "jp_1", "jp_2"])
+@pytest.mark.parametrize("region", ["eu", "jp_1"])
 @pytest.mark.parametrize("pw", NASTY)
 def test_login_body_is_correctly_urlencoded(region, pw):
     c, seen = _login_request(region, "user@example.com", pw)
@@ -95,7 +95,7 @@ def test_percent_hash_password_encoded_exactly():
 
 # ----------------------------------------------------------------- Timeouts
 def test_explicit_timeouts_on_every_client():
-    for region in ("eu", "jp_1", "jp_2"):
+    for region in ("eu", "jp_1"):
         t = MitsubishiEUClient("u", "p", "1", region=region)._http.timeout
         assert (t.connect, t.read) == (10.0, 30.0) and t.write == 30.0 and t.pool == 30.0
 
@@ -177,7 +177,7 @@ def test_failing_charge_endpoint_does_not_break_status(region, fail, caplog):
 
 def test_every_optional_endpoint_can_fail_alone():
     for ep in PAYLOADS:
-        c, _ = _client("jp_2", lambda e, ep=ep: "timeout" if e == ep else None)
+        c, _ = _client("jp_1", lambda e, ep=ep: "timeout" if e == ep else None)
         st = _status(c)
         assert len(st.failed_sources) == 1, ep
 
@@ -242,10 +242,10 @@ def _own(caplog):
 
 def test_debug_log_has_method_endpoint_region_status_duration_and_no_secrets(caplog):
     caplog.set_level(logging.DEBUG)
-    c, _ = _client("jp_2", lambda ep: None)
+    c, _ = _client("jp_1", lambda ep: None)
     _status(c)
-    assert re.search(r"GET /status/getVSR/v1 \[Region=jp_2 \(Variante 2\)\] -> HTTP 200 in \d+ ms", _own(caplog))
-    assert re.search(r"POST /remote/getVehicleLocation/v1 \[Region=jp_2 \(Variante 2\)\] -> HTTP 200 in \d+ ms", _own(caplog))
+    assert re.search(r"GET /status/getVSR/v1 \[Region=jp_1 \(Variante 1\)\] -> HTTP 200 in \d+ ms", _own(caplog))
+    assert re.search(r"POST /remote/getVehicleLocation/v1 \[Region=jp_1 \(Variante 1\)\] -> HTTP 200 in \d+ ms", _own(caplog))
     for secret in ("SECRETPASSWORD", "TOKENVALUE", "REFRESHVALUE", KEY, "signkey", "params="):
         assert secret not in _own(caplog)
 

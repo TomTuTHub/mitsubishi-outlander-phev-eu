@@ -18,16 +18,39 @@ from .const import (
     CONF_PASSWORD,
     CONF_PIN,
     CONF_UPDATE_INTERVAL,
+    CONF_WAKE_ON_POLL,
     DEFAULT_UPDATE_INTERVAL,
+    DEFAULT_WAKE_ON_POLL,
     PLATFORMS,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 
+async def _read_without_wake(client, coordinator, vin):
+    """Status lesen ohne refreshVSR und ohne Wartezeit (Option "Auto aufwecken" aus).
+
+    Die Daten sind so alt wie die letzte Meldung des Autos. Kommt nichts zurueck,
+    bleiben vorhandene Daten stehen, sonst UpdateFailed (kein Retry-Loop)."""
+    try:
+        state = await client.async_get_vehicle_status(vin)
+    except Exception as err:
+        raise UpdateFailed(f"Fehler beim Aktualisieren von {vin}: {err}") from err
+    if state is not None and (state.battery_level is not None or state.odometer is not None):
+        return state
+    previous = getattr(coordinator, "data", None)
+    if previous is not None:
+        _LOGGER.debug("Keine neuen Daten fuer %s (Aufwecken aus), behalte alte Daten", vin)
+        return previous
+    raise UpdateFailed(
+        f"Keine Daten fuer {vin}: Aufwecken ist aus und das Auto hat nichts gemeldet"
+    )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Mitsubishi Connect EU from a config entry."""
-    client = create_client(entry.data)
+    client = create_client(entry.data, use_ha_ssl=True)
+    wake_on_poll = entry.options.get(CONF_WAKE_ON_POLL, DEFAULT_WAKE_ON_POLL)
 
     if not await client.async_login():
         raise ConfigEntryAuthFailed("Invalid credentials for Mitsubishi Connect EU")
@@ -61,6 +84,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             continue
 
         async def _update_vehicle(v=vin):
+            if not wake_on_poll:
+                return await _read_without_wake(client, coordinators.get(v), v)
             # VSR-Refresh triggern (Auto aufwecken → frische Daten an Server)
             # Dann mehrfach pollen bis frische Daten ankommen
             try:
@@ -102,6 +127,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             update_interval=update_interval,
         )
         await coordinator.async_config_entry_first_refresh()
+        coordinator.wake_on_poll = wake_on_poll
         coordinators[vin] = coordinator
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {

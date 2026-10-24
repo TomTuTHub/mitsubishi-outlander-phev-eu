@@ -98,4 +98,7 @@ class MitsubishiRefreshButton(MitsubishiEUEntity, ButtonEntity):
     async def async_press(self) -> None:
         if not await self._client.async_refresh_status(self._vin):
             raise_command_rejected(self._client, self._vin, "refreshVSR")
+        if not getattr(self.coordinator, "wake_on_poll", True):
+            # Ohne Aufwecken beim Abfragen wartet der Button selbst auf das Auto
+            await asyncio.sleep(DELAYED_REFRESH)
         await self.coordinator.async_request_refresh()

@@ -39,12 +39,16 @@
     "step": {
       "init": {
         "title": "Einstellungen",
-        "description": "Zugangsdaten und Aktualisierungsintervall ändern.",
+        "description": "Zugangsdaten und Einstellungen ändern.",
         "data": {
           "username": "E-Mail-Adresse",
           "password": "Passwort",
           "pin": "PIN (4-stellig)",
-          "update_interval": "Aktualisierungsintervall (Minuten)"
+          "update_interval": "Aktualisierungsintervall (Minuten)",
+          "wake_on_poll": "Auto bei Abfrage aufwecken"
+        },
+        "data_description": {
+          "wake_on_poll": "Auto bei jeder Abfrage aufwecken. Aus schont die 12-V-Batterie und stört die offizielle App nicht; die Daten sind dann so alt wie die letzte Meldung des Autos. Der Button „Status aktualisieren“ weckt das Auto weiterhin."
         }
       }
     },
@@ -132,8 +136,7 @@
     "region": {
       "options": {
         "eu": "Europa",
-        "jp_1": "Japan / Thailand – Variante 1 (experimentell)",
-        "jp_2": "Japan / Thailand – Variante 2 (experimentell)"
+        "jp_1": "Japan / Thailand"
       }
     }
   }

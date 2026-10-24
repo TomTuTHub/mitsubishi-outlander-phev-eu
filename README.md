@@ -38,7 +38,7 @@ Home Assistant custom integration for **Mitsubishi Connect EU** (GOA platform) â
 
 ## Regions
 
-When adding the integration you choose a **region**. **Europe** is the default and works exactly as before (existing entries keep running without any change). **Japan / Thailand** is experimental and comes in two variants (Variant 1 and 2, they differ only in one request header); if one does not log in, try the other. Entries created with the removed "Variant 3" run as Variant 1.
+When adding the integration you choose a **region**. **Europe** is the default and works exactly as before (existing entries keep running without any change). **Japan / Thailand** is experimental. Entries created with the removed variants 2 or 3 run as the single remaining variant.
 
 ---
 
@@ -72,6 +72,7 @@ During setup you will be prompted for:
 | **Password** | Your Mitsubishi Connect EU password |
 | **PIN** | 4-digit PIN from the Mitsubishi Connect app |
 | **Update interval** | Polling interval in minutes (default: 15, minimum: 5) |
+| **Wake the car on every update** | Settings only, default on. Off = the car is not woken by polling (saves the 12 V battery, does not disturb the official app); data is as old as the car's last report. The *Update status* button still wakes the car. |
 
 After setup, one device per vehicle (VIN) will be created automatically.
 

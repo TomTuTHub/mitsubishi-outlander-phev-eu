@@ -61,7 +61,8 @@ def generate_pin_hash(client_nonce: str, server_nonce: str, pin: str) -> str | N
 class MitsubishiUSClient:
     """Client for the US platform, interface-compatible with MitsubishiEUClient."""
 
-    def __init__(self, username: str, password: str, pin: str = "") -> None:
+    def __init__(self, username: str, password: str, pin: str = "", ssl_context=None) -> None:
+        self._ssl_context = ssl_context
         self._username = username.strip()
         self._password = password.strip()
         self._pin = pin
@@ -91,7 +92,11 @@ class MitsubishiUSClient:
     ) -> Any | None:
         """One HTTP request, returns parsed JSON or None on any failure."""
         if self._session is None:
-            self._session = aiohttp.ClientSession()
+            if self._ssl_context is not None:
+                self._session = aiohttp.ClientSession(
+                    connector=aiohttp.TCPConnector(ssl=self._ssl_context))
+            else:
+                self._session = aiohttp.ClientSession()
         body: bytes | None = None
         if json_body is not None:
             body = json.dumps(json_body, separators=(",", ":")).encode("utf-8")

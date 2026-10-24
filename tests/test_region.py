@@ -125,7 +125,7 @@ def test_eu_profile_unchanged():
 
 
 def test_regions_listed():
-    assert const.REGIONS == ["eu", "jp_1", "jp_2"]
+    assert const.REGIONS == ["eu", "jp_1"]
     assert "us" not in const.REGIONS
 
 
@@ -268,35 +268,20 @@ def test_option_labels_match_regions():
     for f, word in (("strings.json", "Variant"), ("translations/en.json", "Variant"),
                     ("translations/de.json", "Variante")):
         opts = json.loads((_PKG / f).read_text())["selector"]["region"]["options"]
-        for n in (1, 2):
-            assert opts[f"jp_{n}"] == f"Japan / Thailand – {word} {n} (" + \
-                ("experimentell" if word == "Variante" else "experimental") + ")"
+        assert set(opts) == {"eu", "jp_1"}
+        assert opts["jp_1"] == "Japan / Thailand"
 
 
-def test_two_variants_differ_only_where_intended():
+def test_single_jp_variant_profile_and_headers():
     P = const.KINTARO_PROFILES
-    v1, v2 = P["jp_1"], P["jp_2"]
-    assert "jp_3" not in P
-    assert P["jp"] is v1  # alter Eintrag "jp" == Variante 1
-    shared = ("auth_url", "kintaro_base", "client_id", "client_secret", "app_code",
-              "jwt_sign", "pkg_name", "hash", "security_key", "kt_cfg", "timezone")
-    for k in shared:
-        assert v1[k] == v2[k]
-    assert "omit_headers" not in v1 and "kt_slice_mode" not in v1
-    assert v2["omit_headers"] == ("knt-region",) and "kt_slice_mode" not in v2
-    for n in ("jp_1", "jp_2", "jp"):
+    assert "jp_2" not in P and "jp_3" not in P
+    assert P["jp"] is P["jp_1"]
+    assert "omit_headers" not in P["jp_1"] and "kt_slice_mode" not in P["jp_1"]
+    for n in ("jp_1", "jp"):
         assert isinstance(factory.create_client({**CREDS, "region": n}), MitsubishiEUClient)
-
-
-def test_variant_headers_and_signature():
-    h = {n: factory.create_client({**CREDS, "region": n})._kintaro_headers("1", "s")
-         for n in ("jp_1", "jp_2")}
-    assert h["jp_1"]["knt-region"] == "JP"
-    assert "knt-region" not in h["jp_2"]
-    assert h["jp_2"]["knt-region-code"] == "jp" and h["jp_2"]["knt-user-country"] == "JP"
-    P = const.KINTARO_PROFILES
-    s1, s2 = (api_mod._compute_init_sign(_NONCE, P[n]) for n in ("jp_1", "jp_2"))
-    assert s1 == s2
+    h = factory.create_client({**CREDS, "region": "jp_1"})._kintaro_headers("1", "s")
+    assert h["knt-region"] == "JP"
+    assert h["knt-region-code"] == "jp" and h["knt-user-country"] == "JP"
 
 
 def test_eu_signature_unaffected_by_slice_mode():
@@ -336,9 +321,9 @@ def _run_login(region, resp, caplog):
 
 def test_login_failure_logs_full_status_region_and_body(caplog):
     body = '{"error":"invalid_grant","error_description":"bad creds","access_token":"LEAKME"}'
-    assert _run_login("jp_2", _Resp(403, body), caplog) is False
+    assert _run_login("jp_1", _Resp(403, body), caplog) is False
     msg = caplog.text
-    assert "HTTP 403" in msg and "jp_2 (Variante 2)" in msg and "invalid_grant" in msg
+    assert "HTTP 403" in msg and "jp_1 (Variante 1)" in msg and "invalid_grant" in msg
     assert "LEAKME" not in msg and "SECRETPW" not in msg
 
 
@@ -348,14 +333,14 @@ def test_login_failure_eu_logs_region(caplog):
 
 
 def test_init_failure_logs_status_and_truncates(caplog):
-    c = MitsubishiEUClient("u", "p", "1", region="jp_2")
+    c = MitsubishiEUClient("u", "p", "1", region="jp_1")
     class H:
         async def post(self, url, **kw):
             return _Resp(400, json.dumps({"state": "F", "errorCode": "40012", "msg": "x" * 500}))
     c._http = H()
     caplog.set_level(logging.ERROR)
     assert asyncio.run(c._kintaro_init()) is False
-    assert "HTTP 400" in caplog.text and "jp_2 (Variante 2)" in caplog.text
+    assert "HTTP 400" in caplog.text and "jp_1 (Variante 1)" in caplog.text
     assert "40012" in caplog.text and "x" * 300 not in caplog.text
 
 
@@ -387,4 +372,4 @@ def test_config_flow_source_has_no_forced_region_write():
     src = (_PKG / "config_flow.py").read_text()
     assert "async_migrate_entry" not in src
     init = (_PKG / "__init__.py").read_text()
-    assert "create_client(entry.data)" in init  # Region nur gelesen, nie veraendert
+    assert "create_client(entry.data, use_ha_ssl=True)" in init  # Region nur gelesen, nie veraendert

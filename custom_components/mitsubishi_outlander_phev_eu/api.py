@@ -286,10 +286,11 @@ def _safe_snippet(text: str, limit: int = 200) -> str:
 
 class MitsubishiEUClient:
 
-    def __init__(self, username: str, password: str, pin: str = "", region: str = REGION_EU) -> None:
+    def __init__(self, username: str, password: str, pin: str = "", region: str = REGION_EU,
+                 ssl_context=None) -> None:
         self._p = KINTARO_PROFILES[region]
         self._region = region
-        # Fuer Log-Meldungen: "eu" oder "jp_2"
+        # Fuer Log-Meldungen: "eu" oder "jp_1"
         self._label = region + (
             f" (Variante {self._p['variant']})" if self._p.get("variant") else ""
         )
@@ -300,7 +301,13 @@ class MitsubishiEUClient:
         self._enc_key: str | None = None
         self._sign_key: str | None = None
         self._corr_id = str(uuid.uuid4())
-        self._http = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
+        # Eigener Client (kein geteilter HA-Client: gleiche Header/User-Agent wie
+        # bisher, keine geteilten Cookies, async_close darf ihn schliessen).
+        # Der vorgewaermte SSL-Kontext von HA vermeidet Zertifikat-Laden im Event-Loop.
+        if ssl_context is not None:
+            self._http = httpx.AsyncClient(timeout=HTTP_TIMEOUT, verify=ssl_context)
+        else:
+            self._http = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
         self._vehicles_cache: list[dict] = []
         # errorCode des zuletzt abgelehnten POSTs (None = letzter POST war ok),
         # damit Entitaeten den Cloud-Fehler im Klartext melden koennen
@@ -518,8 +525,6 @@ class MitsubishiEUClient:
             hdrs["knt-user-country"] = self._p["user_country"]
         if self._p.get("region_code"):
             hdrs["knt-region-code"] = self._p["region_code"]
-        for name in self._p.get("omit_headers", ()):  # JP-Variante 2
-            hdrs.pop(name, None)
         if nonce:
             hdrs["knt-timestamp"] = nonce
         if sign:

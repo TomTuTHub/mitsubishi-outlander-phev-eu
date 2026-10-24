@@ -22,7 +22,7 @@ REGION_EU = "eu"
 REGION_US = "us"
 REGION_JP = "jp"  # legacy id of the first JP beta build == Variante 1
 REGION_JP_1 = "jp_1"
-REGION_JP_2 = "jp_2"
+REGION_JP_2 = "jp_2"  # entfernt (v1.1.0b4); alte Eintraege laufen als jp_1
 REGION_JP_3 = "jp_3"  # entfernt (v1.1.0b3); alte Eintraege laufen als jp_1
 
 # Per-region Kintaro/IDM profiles (EU and JP share the same protocol).
@@ -65,7 +65,7 @@ KINTARO_PROFILES = {
 #      knt-region weg.
 # Die Zeitzone (Asia/Tokyo) bleibt in allen Varianten gleich: sie beeinflusst weder
 # Init-Signatur noch Verschluesselung, und der Tester sitzt in dieser Zone.
-# V1 = aktueller Stand (Basisannahme), V2 = nur Header anders.
+# Es gibt nur noch Variante 1 (V2/V3 entfernt; alte Eintraege laufen als jp_1).
 _JP_BASE = {
     "auth_url": "https://idm.prod.goa.mitsubishi-motors.com/oauth/token",
     "kintaro_base": "https://kintaro.prod.goa.mitsubishi-motors.com/prod",
@@ -91,7 +91,6 @@ _JP_BASE = {
 }
 
 KINTARO_PROFILES[REGION_JP_1] = {**_JP_BASE, "variant": 1}
-KINTARO_PROFILES[REGION_JP_2] = {**_JP_BASE, "variant": 2, "omit_headers": ("knt-region",)}
 KINTARO_PROFILES[REGION_JP] = KINTARO_PROFILES[REGION_JP_1]  # alter Eintrag "jp" = Variante 1
 
 # Kintaro API endpoints (from decompiled APK InterfaceC2646a.java)
@@ -156,11 +155,13 @@ CONF_UPDATE_INTERVAL = "update_interval"
 # Default values
 DEFAULT_UPDATE_INTERVAL = 15  # minutes
 MIN_UPDATE_INTERVAL = 5       # minutes
+CONF_WAKE_ON_POLL = "wake_on_poll"  # Auto bei Abfrage aufwecken (refreshVSR)
+DEFAULT_WAKE_ON_POLL = True
 
 # Region selection (stored in the config entry; entries without it are EU)
 CONF_REGION = "region"
 # US (api_us.py) bleibt im Repo, ist aber nicht waehlbar: von niemandem bestaetigt.
-REGIONS = [REGION_EU, REGION_JP_1, REGION_JP_2]
+REGIONS = [REGION_EU, REGION_JP_1]
 DEFAULT_REGION = REGION_EU
 
 # US API (experimental). Values from the MIT-licensed public client
