@@ -72,11 +72,11 @@ During setup you will be prompted for:
 | **Password** | Your Mitsubishi Connect EU password |
 | **PIN** | 4-digit PIN from the Mitsubishi Connect app |
 | **Update interval** | Polling interval in minutes (default: 15, minimum: 5) |
-| **Wake the car on every update** | Settings only, default on. Off = the car is not woken by polling (saves the 12 V battery, does not disturb the official app); data is as old as the car's last report. The *Update status* button still wakes the car. |
+| **Wake the car on every update** | Settings only, default on. Off = the car is not woken by polling (saves the 12 V battery, does not disturb the official app); data is as old as the car's last report. Only if there is no data at all after a start or reload, the car is woken once. The *Update status* button still wakes the car. |
 
 After setup, one device per vehicle (VIN) will be created automatically.
 
-Credentials and the update interval can be changed at any time via **Settings → Devices & Services → TomTuT Mitsubishi Outlander PHEV EU → ⚙️ Reconfigure**.
+Credentials and the update interval can be changed at any time via **Settings → Devices & Services → TomTuT Mitsubishi Outlander PHEV EU → ⚙️ Reconfigure**. Password and PIN are never pre-filled; leave them empty to keep the current values.
 
 ---
 

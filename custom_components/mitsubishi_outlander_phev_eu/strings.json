@@ -21,6 +21,10 @@
           "password": "New password",
           "pin": "PIN (4 digits)",
           "update_interval": "Update interval (minutes)"
+        },
+        "data_description": {
+          "password": "Leave empty to keep the current password.",
+          "pin": "Leave empty to keep the current PIN."
         }
       }
     },
@@ -48,7 +52,9 @@
           "wake_on_poll": "Wake the car on every update"
         },
         "data_description": {
-          "wake_on_poll": "Wake the car when polling. Turn off to protect the 12 V battery and to avoid disturbing the official app; the data is then only as old as the last report from the car. The Update status button still wakes the car."
+          "wake_on_poll": "Wake the car when polling. Turn off to protect the 12 V battery and to avoid disturbing the official app; the data is then only as old as the last report from the car. The Update status button still wakes the car.",
+          "password": "Leave empty to keep the current password.",
+          "pin": "Leave empty to keep the current PIN."
         }
       }
     },

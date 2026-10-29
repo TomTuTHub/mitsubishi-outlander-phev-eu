@@ -65,6 +65,12 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
+def _keep_secret(user_input: dict[str, Any], old: dict[str, Any], key: str) -> str:
+    """Leeres Feld = bisherigen Wert behalten (PIN/Passwort werden nie vorbelegt)."""
+    value = user_input.get(key)
+    return value if value else old.get(key, "")
+
+
 def _selectable_region(data: dict[str, Any]) -> str:
     """Region des Eintrags als Dropdown-Wert ("jp" der ersten Beta = Variante 1)."""
     region = get_region(data)
@@ -144,9 +150,12 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if CONF_UPDATE_INTERVAL in user_input:
                 user_input[CONF_UPDATE_INTERVAL] = int(user_input[CONF_UPDATE_INTERVAL])
             try:
-                await validate_input(self.hass, user_input)
-                self.hass.config_entries.async_update_entry(entry, data=user_input)
-                await self.hass.config_entries.async_reload(entry.entry_id)
+                new_data = {**entry.data, **user_input}
+                new_data[CONF_PASSWORD] = _keep_secret(user_input, entry.data, CONF_PASSWORD)
+                new_data[CONF_PIN] = _keep_secret(user_input, entry.data, CONF_PIN)
+                await validate_input(self.hass, new_data)
+                # Neu laden macht der Update-Listener (kein zweiter Reload hier)
+                self.hass.config_entries.async_update_entry(entry, data=new_data)
                 return self.async_abort(reason="reconfigure_successful")
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
@@ -166,8 +175,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_REGION, default=_selectable_region(entry.data)
                     ): _REGION,
                     vol.Required(CONF_USERNAME, default=entry.data.get(CONF_USERNAME, "")): _TEXT,
-                    vol.Required(CONF_PASSWORD): _PASSWORD,
-                    vol.Required(CONF_PIN, default=entry.data.get(CONF_PIN, "")): _PASSWORD,
+                    vol.Optional(CONF_PASSWORD): _PASSWORD,
+                    vol.Optional(CONF_PIN): _PASSWORD,
                     vol.Optional(
                         CONF_UPDATE_INTERVAL,
                         default=entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
@@ -201,9 +210,15 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 user_input[CONF_UPDATE_INTERVAL] = int(user_input[CONF_UPDATE_INTERVAL])
             new_data = {**self._config_entry.data}
             new_data[CONF_USERNAME] = user_input[CONF_USERNAME]
-            new_data[CONF_PASSWORD] = user_input[CONF_PASSWORD]
-            new_data[CONF_PIN] = user_input[CONF_PIN]
-            new_data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
+            new_data[CONF_PASSWORD] = _keep_secret(user_input, self._config_entry.data, CONF_PASSWORD)
+            new_data[CONF_PIN] = _keep_secret(user_input, self._config_entry.data, CONF_PIN)
+            new_data[CONF_UPDATE_INTERVAL] = user_input.get(
+                CONF_UPDATE_INTERVAL,
+                self._config_entry.options.get(
+                    CONF_UPDATE_INTERVAL,
+                    self._config_entry.data.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL),
+                ),
+            )
 
             try:
                 await validate_input(self.hass, new_data)
@@ -224,7 +239,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_create_entry(
                     title="",
                     data={
-                        CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
+                        CONF_UPDATE_INTERVAL: new_data[CONF_UPDATE_INTERVAL],
                         CONF_WAKE_ON_POLL: user_input.get(CONF_WAKE_ON_POLL, DEFAULT_WAKE_ON_POLL),
                     },
                 )
@@ -237,11 +252,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_USERNAME,
                         default=self._config_entry.data.get(CONF_USERNAME, ""),
                     ): _TEXT,
-                    vol.Required(CONF_PASSWORD): _PASSWORD,
-                    vol.Required(
-                        CONF_PIN,
-                        default=self._config_entry.data.get(CONF_PIN, ""),
-                    ): _PASSWORD,
+                    vol.Optional(CONF_PASSWORD): _PASSWORD,
+                    vol.Optional(CONF_PIN): _PASSWORD,
                     vol.Optional(
                         CONF_UPDATE_INTERVAL,
                         default=self._config_entry.options.get(

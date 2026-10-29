@@ -76,7 +76,7 @@ def _install_ha_stubs():
 
 
 class _FakeCoordinator:
-    def __init__(self, hass, logger, name, update_method, update_interval):
+    def __init__(self, hass, logger, name, update_method, update_interval, config_entry=None):
         self.update_method, self.data = update_method, None
 
     async def async_config_entry_first_refresh(self):
@@ -207,12 +207,39 @@ def test_option_off_empty_result_no_retry_loop_keeps_old_data(monkeypatch):
     assert client.status_calls == calls + 1 and client.refresh_calls == 0 and slept == []
 
 
-def test_option_off_empty_first_result_raises_update_failed(monkeypatch):
+def test_option_off_empty_first_result_wakes_once_then_loads(monkeypatch):
+    """b5: erster Abruf ohne Daten -> einmal wecken statt UpdateFailed/Setup-Retry."""
     client = _FakeClient()
     client.state = VehicleState()
+    calls = {"n": 0}
+
+    async def refresh(vin):
+        calls["n"] += 1
+        client.state = VehicleState(battery_level=55, odometer=10)
+        return True
+    client.async_refresh_status = refresh
+    data, slept = _setup(monkeypatch, {const.CONF_WAKE_ON_POLL: False}, client)
+    assert calls["n"] == 1 and slept == [15]
+    assert data["coordinators"]["V1"].data.battery_level == 55
+
+
+def test_option_off_empty_even_after_wake_still_loads(monkeypatch):
+    client = _FakeClient()
+    client.state = VehicleState()
+    data, slept = _setup(monkeypatch, {const.CONF_WAKE_ON_POLL: False}, client)
+    assert client.refresh_calls == 1
+    assert data["coordinators"]["V1"].data.battery_level is None
+
+
+def test_option_off_api_error_first_result_raises_update_failed(monkeypatch):
+    client = _FakeClient()
+
+    async def boom(vin):
+        raise RuntimeError("netz weg")
+    client.async_get_vehicle_status = boom
     with pytest.raises(integration.UpdateFailed):
         _setup(monkeypatch, {const.CONF_WAKE_ON_POLL: False}, client)
-    assert client.refresh_calls == 0 and client.status_calls == 1
+    assert client.refresh_calls == 0
 
 
 def test_refresh_button_waits_when_wake_off(monkeypatch):
@@ -272,8 +299,9 @@ def test_ssl_context_is_passed_and_close_closes_own_client():
     assert c._http.is_closed
 
 
-def test_create_client_without_ha_ssl_default_has_no_context():
+def test_create_client_without_ha_ssl_default_has_no_context(monkeypatch):
     # Offline: ohne HA-Modul liefert _ssl_context() None -> alter Pfad
+    monkeypatch.setitem(sys.modules, "homeassistant.util.ssl", None)
     assert factory._ssl_context() is None
     assert factory.create_client({"username": "u", "password": "p", "pin": "1"}, use_ha_ssl=True)
 
