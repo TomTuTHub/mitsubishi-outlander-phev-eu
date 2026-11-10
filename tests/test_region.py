@@ -118,7 +118,8 @@ def test_jp_region_selects_kintaro_client_with_jp_profile():
 
 def test_eu_profile_unchanged():
     p = factory.create_client(CREDS)._p
-    assert p["auth_url"] == const.EU_AUTH_URL and p["client_id"] == const.EU_CLIENT_ID
+    assert p["login"] == const.LOGIN_IDM and p["idm_base"] == const.EU_IDM_BASE
+    assert p["client_id"] == const.EU_CLIENT_ID
     assert p["app_code"] == "202501100700475534942"
     assert p["jwt_sign"] == "dh7RqD9qTgRwqlHaidv3hYLP0BicgkR9"
     assert p["client_secret"] == const.EU_CLIENT_SECRET
@@ -156,8 +157,8 @@ def test_jp_login_and_init_use_jp_urls():
         c2._http = H2()
         await c2._kintaro_init()
         return urls, forms, hdrs
+    # EU-Login (neuer IDM-Weg) steckt in tests/test_b6_login.py
     for region, auth, base, app in [
-        ("eu", const.EU_AUTH_URL, const.EU_KINTARO_BASE, const.KINTARO_APP_CODE),
         ("jp", "https://idm.prod.goa.mitsubishi-motors.com/oauth/token",
          "https://kintaro.prod.goa.mitsubishi-motors.com/prod", "202411201314294614109"),
     ]:

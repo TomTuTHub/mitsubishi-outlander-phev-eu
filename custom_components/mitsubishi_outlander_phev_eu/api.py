@@ -20,10 +20,16 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import httpx
-from Crypto.Cipher import AES
+from Crypto.Cipher import AES, PKCS1_v1_5
+from Crypto.PublicKey import RSA
 from Crypto.Util.Padding import pad, unpad
 
 from .const import (
+    IDM_EP_INIT,
+    IDM_EP_LOGIN,
+    IDM_EP_REFRESH,
+    IDM_PAYLOAD_KEY,
+    LOGIN_IDM,
     KINTARO_PROFILES,
     REGION_EU,
     EP_INIT,
@@ -256,6 +262,53 @@ def _compute_sign(enc_body: str, nonce: str, sign_key: str, p: dict = _EU) -> st
     sign_input = enc_body + nonce + ns + ns + sign_key
     return _sha256h(sign_input).upper()
 
+# ----------------------------------------------------------------------
+# IDM login (app 3.x, stationdm IDM SDK) - portiert aus v1.0.8
+# ----------------------------------------------------------------------
+
+def _idm_encrypt(plain: str) -> str:
+    """AES-256-ECB/PKCS5 + base64, as Utils.encryptAES in the app."""
+    cipher = AES.new(IDM_PAYLOAD_KEY.encode("utf-8"), AES.MODE_ECB)
+    return base64.b64encode(cipher.encrypt(pad(plain.encode("utf-8"), AES.block_size))).decode("ascii")
+
+def _idm_decrypt(payload_b64: str) -> str:
+    cipher = AES.new(IDM_PAYLOAD_KEY.encode("utf-8"), AES.MODE_ECB)
+    return unpad(cipher.decrypt(base64.b64decode(payload_b64)), AES.block_size).decode("utf-8")
+
+def _idm_encrypt_password(password: str, public_key_b64: str, key_index: Any) -> str:
+    """"<keyIndex>@" + base64(RSA/ECB/PKCS1(password)) with the key from /api/v1/init."""
+    key = RSA.import_key(base64.b64decode(public_key_b64))
+    enc = PKCS1_v1_5.new(key).encrypt(password.encode("utf-8"))
+    return f"{key_index}@{base64.b64encode(enc).decode('ascii')}"
+
+def _idm_device_id(username: str) -> str:
+    """Stable per-account device id (the app sends its Android id)."""
+    return _sha256h("ha-outlander-phev-eu:" + (username or ""))[:16]
+
+def _idm_headers(device_id: str, p: dict = _EU, ts: str | None = None, nonce: str | None = None) -> dict[str, str]:
+    """Headers as sent by the app; X-Signature = md5(clientId + nonce + timestamp)."""
+    ts = ts or str(int(time.time() * 1000))
+    nonce = nonce or str(uuid.uuid4())
+    return {
+        "Content-Type": "application/json",
+        "User-Agent": "okhttp/4.12.0",
+        "X-Device": "homeassistant",
+        "X-Device-Id": device_id,
+        "X-Locale": p["idm_locale"],
+        "X-Timezone": p["idm_timezone"],
+        "X-App-Name": "Mitsubishi Motors",
+        "X-App-Version": p["idm_app_version"],
+        "X-App-Unique-Id": p["pkg_name"],
+        "X-OS-Type": "android",
+        "X-OS-Version": "14",
+        "X-Timestamp": ts,
+        "X-Encrypt-Payload": "true",
+        "X-Client-Id": p["client_id"],
+        "X-Client-Secret": p["client_secret"],
+        "X-Nonce": nonce,
+        "X-Signature": _md5h(p["client_id"] + nonce + ts),
+    }
+
 def _compute_pin_hash(client_nonce_b64: str, server_nonce_b64: str, pin: str) -> str:
     client_bytes = base64.b64decode(client_nonce_b64)
     server_bytes = base64.b64decode(server_nonce_b64)
@@ -278,6 +331,17 @@ def _safe_snippet(text: str, limit: int = 200) -> str:
     text = _SECRET_JSON.sub(r'\1"***"', text)
     text = _LONG_TOKEN.sub("***", text)
     return text[:limit] + ("..." if len(text) > limit else "")
+
+
+def _oauth_error(r) -> str | None:
+    """OAuth-Fehlercode ("error") einer abgelehnten /oauth/token-Antwort."""
+    try:
+        data = r.json()
+    except ValueError:
+        data = None
+    if isinstance(data, dict) and isinstance(data.get("error"), str):
+        return data["error"]
+    return "unauthorized_client" if "unauthorized_client" in (r.text or "") else None
 
 
 # ======================================================================
@@ -316,6 +380,9 @@ class MitsubishiEUClient:
         self._pin_verified = False
         self._pin_hash: str | None = None
         self._warned: set = set()
+        # Login-Weg: EU immer neuer IDM-Login; JP startet beim password grant und
+        # wechselt nach einem erfolgreichen Fallback dauerhaft (fuer diesen Client).
+        self._use_idm = self._p.get("login") == LOGIN_IDM
 
     def _warn_once(self, key, msg: str, *args) -> None:
         """Warnung je Ursache nur einmal, danach Debug (kein Log-Spam bei jedem Poll)."""
@@ -353,6 +420,30 @@ class MitsubishiEUClient:
     # ------------------------------------------------------------------
 
     async def async_login(self) -> bool:
+        """Login je Region.
+
+        EU: neuer Login wie App 3.2.0 (IDM /api/v1/init + /api/v1/login).
+        JP: password grant; lehnt der Server ihn mit "unauthorized_client" ab, genau
+        EIN Wechsel auf den neuen Login (keine Schleife). Andere Fehler (falsches
+        Passwort, Netz, Timeout) wechseln nie: das IDM sperrt das Konto nach 5
+        Fehlversuchen in 5 min."""
+        if self._use_idm:
+            return await self._idm_login()
+        ok, error = await self._legacy_login()
+        if ok or error != "unauthorized_client" or not self._p.get("idm_fallback"):
+            return ok
+        _LOGGER.warning(
+            "Login [Region=%s]: password grant abgelehnt (unauthorized_client), "
+            "wechsle einmalig auf den neuen Login wie die App 3.x",
+            self._label,
+        )
+        if await self._idm_login():
+            self._use_idm = True
+            return True
+        return False
+
+    async def _legacy_login(self) -> tuple[bool, str | None]:
+        """OAuth password grant (/oauth/token). -> (ok, OAuth-Fehlercode bei Ablehnung)."""
         try:
             r = await self._send(
                 "POST", "oauth/token(login)", self._p['auth_url'],
@@ -373,7 +464,7 @@ class MitsubishiEUClient:
                     "Login fehlgeschlagen [Region=%s]: HTTP %s, Antwort: %s",
                     self._label, r.status_code, _safe_snippet(r.text),
                 )
-                return False
+                return False, _oauth_error(r)
 
             data = r.json()
             self._token = TokenState(
@@ -381,9 +472,78 @@ class MitsubishiEUClient:
                 refresh_token=data.get("refresh_token", ""),
                 expires_at=datetime.now() + timedelta(seconds=data.get("expires_in", 3600)),
             )
+            return await self._kintaro_init(), None
+        except httpx.RequestError as err:
+            _LOGGER.error("Login Fehler: %s", err)
+            return False, None
+
+    async def _idm_call(self, path: str, body: dict, device_id: str) -> tuple[int, dict | None]:
+        """One IDM request: encrypted body, encrypted response -> (http status, decrypted json)."""
+        r = await self._send(
+            "POST", f"IDM {path}", f"{self._p['idm_base']}{path}",
+            json={"payload": _idm_encrypt(json.dumps(body))},
+            headers=_idm_headers(device_id, self._p),
+        )
+        try:
+            outer = r.json()
+        except ValueError:
+            _LOGGER.error("IDM %s [Region=%s]: no JSON response (HTTP %s)", path, self._label, r.status_code)
+            return r.status_code, None
+        if isinstance(outer, dict) and isinstance(outer.get("payload"), str):
+            try:
+                return r.status_code, json.loads(_idm_decrypt(outer["payload"]))
+            except (ValueError, KeyError) as err:
+                _LOGGER.error("IDM %s [Region=%s]: response not decryptable: %s", path, self._label, err)
+                return r.status_code, None
+        return r.status_code, outer if isinstance(outer, dict) else None
+
+    def _take_tokens(self, data: dict, old_refresh: str = "") -> None:
+        self._token = TokenState(
+            access_token=data["accessToken"],
+            refresh_token=data.get("refreshToken") or old_refresh,
+            expires_at=datetime.now() + timedelta(seconds=int(data.get("expiresIn") or 3600)),
+        )
+
+    async def _idm_login(self) -> bool:
+        """Login like the official app 3.x (IDM /api/v1/init + /api/v1/login).
+
+        The IDM locks the account for 30 min after 5 failed logins within 5 min,
+        so a rejected login is never retried here."""
+        try:
+            device_id = _idm_device_id(self._username)
+            status, init = await self._idm_call(
+                IDM_EP_INIT, {"deviceId": device_id, "clientId": self._p["client_id"]}, device_id
+            )
+            cfg = (init or {}).get("data") or {}
+            if status != 200 or str((init or {}).get("code")) != "200" or not cfg.get("publicKey") or cfg.get("keyIndex") is None:
+                _LOGGER.error("IDM init failed [Region=%s]: HTTP %s, code %s",
+                              self._label, status, (init or {}).get("code"))
+                return False
+
+            password = _idm_encrypt_password(self._password, cfg["publicKey"], cfg["keyIndex"])
+            status, resp = await self._idm_call(
+                IDM_EP_LOGIN,
+                {"username": self._username, "password": password,
+                 "clientId": self._p["client_id"], "deviceId": device_id},
+                device_id,
+            )
+            data = (resp or {}).get("data") or {}
+            if status != 200 or str((resp or {}).get("code")) != "200" or not data.get("accessToken"):
+                # code + message only, never the body (may contain tokens)
+                _LOGGER.error(
+                    "Login fehlgeschlagen [Region=%s]: HTTP %s, code %s, %s",
+                    self._label, status, (resp or {}).get("code"),
+                    str((resp or {}).get("message") or "")[:120],
+                )
+                return False
+
+            self._take_tokens(data)
             return await self._kintaro_init()
         except httpx.RequestError as err:
             _LOGGER.error("Login Fehler: %s", err)
+            return False
+        except (ValueError, TypeError) as err:
+            _LOGGER.error("Login Fehler (IDM-Antwort) [Region=%s]: %s", self._label, err)
             return False
 
     async def _kintaro_init(self) -> bool:
@@ -423,6 +583,8 @@ class MitsubishiEUClient:
     async def async_refresh_token(self) -> bool:
         if not self._token.refresh_token:
             return await self.async_login()
+        if self._use_idm:
+            return await self._idm_refresh()
         try:
             r = await self._send(
                 "POST", "oauth/token(refresh)", self._p['auth_url'],
@@ -444,6 +606,25 @@ class MitsubishiEUClient:
                 return await self._kintaro_init()
             return await self.async_login()
         except httpx.RequestError:
+            return await self.async_login()
+
+    async def _idm_refresh(self) -> bool:
+        try:
+            device_id = _idm_device_id(self._username)
+            status, resp = await self._idm_call(
+                IDM_EP_REFRESH,
+                {"clientId": self._p["client_id"], "clientSecret": self._p["client_secret"],
+                 "refreshToken": self._token.refresh_token},
+                device_id,
+            )
+            data = (resp or {}).get("data") or {}
+            if status == 200 and str((resp or {}).get("code")) == "200" and data.get("accessToken"):
+                self._take_tokens(data, self._token.refresh_token)
+                return await self._kintaro_init()
+            _LOGGER.debug("Token-Refresh abgelehnt [Region=%s]: HTTP %s, code %s",
+                          self._label, status, (resp or {}).get("code"))
+            return await self.async_login()
+        except (httpx.RequestError, ValueError, TypeError):
             return await self.async_login()
 
     async def _ensure_token(self) -> bool:

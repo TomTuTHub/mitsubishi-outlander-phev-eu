@@ -60,7 +60,8 @@ def _login_request(region, user, pw):
     return c, seen
 
 
-@pytest.mark.parametrize("region", ["eu", "jp_1"])
+# b6: EU nutzt den password grant nicht mehr (neuer Login, tests/test_b6_login.py)
+@pytest.mark.parametrize("region", ["jp_1"])
 @pytest.mark.parametrize("pw", NASTY)
 def test_login_body_is_correctly_urlencoded(region, pw):
     c, seen = _login_request(region, "user@example.com", pw)
@@ -76,15 +77,17 @@ def test_login_body_is_correctly_urlencoded(region, pw):
 
 
 def test_login_username_with_specials_is_encoded():
-    _, seen = _login_request("eu", "a+b&c=d@x.de", "p")
+    _, seen = _login_request("jp_1", "a+b&c=d@x.de", "p")
     assert urllib.parse.parse_qs(seen["body"].decode())["username"] == ["a+b&c=d@x.de"]
 
 
-def test_eu_login_body_without_specials_is_byte_identical_golden():
-    _, seen = _login_request("eu", "user@example.com", "secret123")
+def test_jp_login_body_without_specials_is_byte_identical_golden():
+    _, seen = _login_request("jp_1", "user@example.com", "secret123")
+    p = const.KINTARO_PROFILES["jp_1"]
+    assert seen["url"] == "https://idm.prod.goa.mitsubishi-motors.com/oauth/token"
     assert seen["body"] == (
         b"grant_type=password&username=user%40example.com&password=secret123"
-        b"&client_id=" + const.EU_CLIENT_ID.encode() + b"&client_secret=" + const.EU_CLIENT_SECRET.encode()
+        b"&client_id=" + p["client_id"].encode() + b"&client_secret=" + p["client_secret"].encode()
     )
 
 
@@ -252,8 +255,13 @@ def test_debug_log_has_method_endpoint_region_status_duration_and_no_secrets(cap
 
 def test_debug_log_login_has_no_password(caplog):
     caplog.set_level(logging.DEBUG)
+    _login_request("jp_1", "u", "SECRETPASSWORD")
+    assert "POST oauth/token(login) [Region=jp_1 (Variante 1)] -> HTTP 401 in" in _own(caplog)
+    jp_secret = const.KINTARO_PROFILES["jp_1"]["client_secret"]
+    assert "SECRETPASSWORD" not in _own(caplog) and jp_secret not in _own(caplog)
+    caplog.clear()
     _login_request("eu", "u", "SECRETPASSWORD")
-    assert "POST oauth/token(login) [Region=eu] -> HTTP 401 in" in _own(caplog)
+    assert "POST IDM /api/v1/init [Region=eu] -> HTTP 401 in" in _own(caplog)
     assert "SECRETPASSWORD" not in _own(caplog) and const.EU_CLIENT_SECRET not in _own(caplog)
 
 

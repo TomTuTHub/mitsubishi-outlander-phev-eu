@@ -4,7 +4,23 @@ DOMAIN = "mitsubishi_outlander_phev_eu"
 PLATFORMS = ["sensor", "binary_sensor", "device_tracker", "switch", "button", "lock", "climate"]
 
 # EU API Configuration
-EU_AUTH_URL = "https://idm.prod.goa-eu.mitsubishi-motors.com/oauth/token"
+# Login: Mitsubishi switched off the OAuth password grant (/oauth/token) for the EU
+# client id on 2026-11-10 ~02:16 UTC (400 unauthorized_client). The official app 3.2.0
+# logs in through the stationdm IDM SDK instead:
+#   POST /api/v1/init          {deviceId, clientId}                 -> RSA public key + keyIndex
+#   POST /api/v1/login         {username, password=<keyIndex>@RSA, clientId, deviceId}
+#   POST /api/v1/refreshToken  {clientId, clientSecret, refreshToken}
+# Request and response bodies are {"payload": base64(AES-256-ECB(json))}.
+EU_IDM_BASE = "https://idm.prod.goa-eu.mitsubishi-motors.com"
+IDM_EP_INIT = "/api/v1/init"
+IDM_EP_LOGIN = "/api/v1/login"
+IDM_EP_REFRESH = "/api/v1/refreshToken"
+# Utils.encryptAES key; identical in EU-APK 3.2.0 and JP-APK 3.1.0 (SDMCommonResponse / D4.x)
+IDM_PAYLOAD_KEY = "F)J@NcRfUjXn2r4u7x!A%D*G-KaPdSgV"
+# Login variants per profile ("login"): "idm" = new login (app 3.x),
+# "legacy" = OAuth password grant (/oauth/token)
+LOGIN_IDM = "idm"
+LOGIN_LEGACY = "legacy"
 EU_KINTARO_BASE = "https://kintaro.prod.goa-eu.mitsubishi-motors.com/prod"
 
 # OAuth credentials (from APK v1.3.1)
@@ -33,7 +49,13 @@ REGION_JP_3 = "jp_3"  # entfernt (v1.1.0b3); alte Eintraege laufen als jp_1
 # signature slices of the second MD5, [8]/[9] nonce offset (EU: 15,31,18,22,0,13,1,5,7,7).
 KINTARO_PROFILES = {
     REGION_EU: {
-        "auth_url": EU_AUTH_URL,
+        # EU: nur noch der neue Login (password grant seit 10.11.2026 abgeschaltet).
+        # Werte byte-identisch zu v1.0.8 (main).
+        "login": LOGIN_IDM,
+        "idm_base": EU_IDM_BASE,
+        "idm_app_version": "3.2.0",
+        "idm_locale": "en-GB",
+        "idm_timezone": "1",
         "kintaro_base": EU_KINTARO_BASE,
         "client_id": EU_CLIENT_ID,
         "client_secret": EU_CLIENT_SECRET,
@@ -67,6 +89,22 @@ KINTARO_PROFILES = {
 # Init-Signatur noch Verschluesselung, und der Tester sitzt in dieser Zone.
 # Es gibt nur noch Variante 1 (V2/V3 entfernt; alte Eintraege laufen als jp_1).
 _JP_BASE = {
+    # Login: Standard bleibt der password grant (geht in Japan noch). Lehnt der Server
+    # ihn mit "unauthorized_client" ab (wie EU am 10.11.2026), wechselt der Client
+    # EINMAL pro Login auf den neuen IDM-Login ("idm_fallback").
+    # Neuer Login, Belege aus der JP-APK 3.1.0 (stationdm IDM SDK, dekompiliert):
+    #  - Endpunkte /api/v1/init, /api/v1/login, /api/v1/refreshToken, Request-Felder,
+    #    Header-Satz, RSA-Passwort "<keyIndex>@..." und Payload-Key: identisch zu EU.
+    #  - Host, client_id, client_secret: die App nimmt sie aus demselben
+    #    InterchangeIDClient wie den password grant -> Host von auth_url, client_id/secret unten.
+    # Unbelegt (Annahmen, ungetestet): X-Locale "ja-JP", X-Timezone "9", X-App-Name,
+    #  und ob der JP-Server den neuen Login fuer diese client_id schon annimmt.
+    "login": LOGIN_LEGACY,
+    "idm_fallback": True,
+    "idm_base": "https://idm.prod.goa.mitsubishi-motors.com",
+    "idm_app_version": "3.1.0",
+    "idm_locale": "ja-JP",
+    "idm_timezone": "9",
     "auth_url": "https://idm.prod.goa.mitsubishi-motors.com/oauth/token",
     "kintaro_base": "https://kintaro.prod.goa.mitsubishi-motors.com/prod",
     "client_id": "Rn6WysiaR7xDrz39If3d3foQsuHLAjiw",
