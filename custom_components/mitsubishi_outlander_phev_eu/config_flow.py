@@ -124,8 +124,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input[CONF_UPDATE_INTERVAL] = int(user_input[CONF_UPDATE_INTERVAL])
             try:
                 await validate_input(self.hass, user_input)
+                # Neu laden macht der Update-Listener (kein zweiter Reload hier)
                 self.hass.config_entries.async_update_entry(entry, data=user_input)
-                await self.hass.config_entries.async_reload(entry.entry_id)
                 return self.async_abort(reason="reconfigure_successful")
             except InvalidAuth:
                 errors["base"] = "invalid_auth"

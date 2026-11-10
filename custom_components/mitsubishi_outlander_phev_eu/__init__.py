@@ -101,6 +101,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator = DataUpdateCoordinator(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=f"{DOMAIN}_{vin}",
             update_method=_update_vehicle,
             update_interval=update_interval,
@@ -121,14 +122,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload a config entry."""
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        data = hass.data[DOMAIN].pop(entry.entry_id)
-        await data["client"].async_close()
+    """Unload a config entry.
+
+    Robust gegen doppeltes Entladen: fehlt der Eintrag in hass.data schon,
+    gibt es keinen KeyError."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok:
+        data = hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
+        if data is not None:
+            await data["client"].async_close()
     return unload_ok
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reload config entry."""
-    await async_unload_entry(hass, entry)
-    await async_setup_entry(hass, entry)
+    """Update-Listener: Neu laden ueber den HA-Lebenszyklus.
+
+    Bis 1.0.8 rief der Listener async_unload_entry/async_setup_entry direkt auf,
+    an HA vorbei: der Coordinator hatte keinen Config-Entry (ConfigEntryError im
+    ersten Refresh bei jedem Speichern der Optionen), der Eintrag blieb fuer HA
+    "geladen" und das naechste echte Entladen endete im KeyError."""
+    hass.config_entries.async_schedule_reload(entry.entry_id)
