@@ -11,6 +11,15 @@ Home Assistant custom integration for **Mitsubishi Connect EU** (GOA platform) �
 
 > **Disclaimer:** This is an unofficial community project. It is not affiliated with, endorsed by, or supported by Mitsubishi Motors or any of its subsidiaries. Use at your own risk.
 
+> ⚠️ **Login stopped working on 10 Nov 2026? Update to v1.0.8.**
+>
+> Mitsubishi switched off the old login method (OAuth password grant) on
+> 10 Nov 2026; older versions fail with "Invalid credentials" although your password is
+> correct. v1.0.8 logs in the same way as the official app 3.2.0. After updating, restart
+> Home Assistant; if the integration still shows a re-authentication prompt, enter your
+> password once more. Avoid repeated attempts: Mitsubishi locks the account for 30 minutes
+> after 5 failed logins within 5 minutes.
+
 ---
 
 ## Features

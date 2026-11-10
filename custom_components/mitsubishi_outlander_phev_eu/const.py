@@ -4,10 +4,22 @@ DOMAIN = "mitsubishi_outlander_phev_eu"
 PLATFORMS = ["sensor", "binary_sensor", "device_tracker", "switch", "button", "lock", "climate"]
 
 # EU API Configuration
-EU_AUTH_URL = "https://idm.prod.goa-eu.mitsubishi-motors.com/oauth/token"
+# Login: Mitsubishi switched off the OAuth password grant (/oauth/token) for this
+# client id on 2026-11-10 ~02:16 UTC (400 unauthorized_client). The official app 3.2.0
+# logs in through the stationdm IDM SDK instead:
+#   POST /api/v1/init          {deviceId, clientId}                 -> RSA public key + keyIndex
+#   POST /api/v1/login         {username, password=<keyIndex>@RSA, clientId, deviceId}
+#   POST /api/v1/refreshToken  {clientId, clientSecret, refreshToken}
+# Request and response bodies are {"payload": base64(AES-256-ECB(json))}.
+EU_IDM_BASE = "https://idm.prod.goa-eu.mitsubishi-motors.com"
+IDM_EP_INIT = "/api/v1/init"
+IDM_EP_LOGIN = "/api/v1/login"
+IDM_EP_REFRESH = "/api/v1/refreshToken"
+IDM_PAYLOAD_KEY = "F)J@NcRfUjXn2r4u7x!A%D*G-KaPdSgV"  # Utils.encryptAES key (APK 3.2.0)
+IDM_APP_VERSION = "3.2.0"
 EU_KINTARO_BASE = "https://kintaro.prod.goa-eu.mitsubishi-motors.com/prod"
 
-# OAuth credentials (from APK v1.3.1)
+# Client credentials (from APK v1.3.1, unchanged in 3.2.0)
 EU_CLIENT_ID = "JzMQyXDcM5RcmVxZbzlMbPnyVhJaWiNe"
 EU_CLIENT_SECRET = "KKEqZ1ko83ALOEKTejjjfNPRKmAYJjJI15UEDH3lvHtqfJggys5qR7nKrQT2epvz"
 
