@@ -76,6 +76,15 @@ _LOGGER = logging.getLogger(__name__)
 
 TOKEN_EXPIRY_MARGIN = timedelta(minutes=5)
 
+# errorCode "ForceLogout" (Enum der App): der Server hat die Sitzung beendet,
+# typisch weil sich dasselbe Konto woanders angemeldet hat. Die Sitzung ist tot,
+# weiterfragen bringt nichts (bis 1.0.9: 90 s Polling ohne Daten).
+FORCE_LOGOUT_CODE = "600002"
+
+
+class ForceLogoutError(Exception):
+    """Server meldet ForceLogout (600002) auch nach dem einen erneuten Login."""
+
 
 # ======================================================================
 # Datenmodelle
@@ -331,6 +340,34 @@ class MitsubishiEUClient:
         self._internal_vins: dict[str, str] = {}
         self._pin_verified = False
         self._pin_hash: str | None = None
+        # ForceLogout (600002): pro Abfrage-Zyklus genau EIN erneuter Login
+        self._force_relogin_used = False
+
+    def begin_cycle(self) -> None:
+        """Neuer Abfrage-Zyklus (Coordinator-Update, Button, Befehl): der eine
+        erlaubte Neu-Login nach ForceLogout steht wieder zur Verfuegung."""
+        self._force_relogin_used = False
+
+    async def _relogin_after_force_logout(self, method: str, endpoint: str) -> None:
+        """Nach errorCode 600002 genau EINMAL neu einloggen. Kommt 600002 im selben
+        Zyklus noch einmal oder klappt der Login nicht: ForceLogoutError (keine Schleife)."""
+        if self._force_relogin_used:
+            raise ForceLogoutError(
+                f"{method} {endpoint}: Sitzung erneut vom Server beendet (errorCode "
+                f"{FORCE_LOGOUT_CODE}) - ist dasselbe Konto gerade woanders angemeldet?"
+            )
+        self._force_relogin_used = True
+        _LOGGER.warning(
+            "%s %s: Sitzung vom Server beendet (errorCode %s), melde mich einmal neu an",
+            method, endpoint, FORCE_LOGOUT_CODE,
+        )
+        self._token = TokenState()
+        self._enc_key = None
+        self._sign_key = None
+        if not await self.async_login():
+            raise ForceLogoutError(
+                f"{method} {endpoint}: neuer Login nach errorCode {FORCE_LOGOUT_CODE} fehlgeschlagen"
+            )
 
     async def async_close(self) -> None:
         await self._http.aclose()
@@ -491,6 +528,8 @@ class MitsubishiEUClient:
                 return True
             _LOGGER.error("PIN ungueltig")
             return False
+        except ForceLogoutError:
+            raise
         except Exception as err:
             _LOGGER.error("PIN Fehler: %s", err)
             return False
@@ -531,7 +570,21 @@ class MitsubishiEUClient:
         return hdrs
 
     async def _kintaro_get(self, endpoint: str, params: dict | None = None) -> dict | None:
-        """GET mit Query-String-Format."""
+        """GET mit Query-String-Format. ForceLogout (600002): einmal neu einloggen
+        und wiederholen, kommt es wieder: ForceLogoutError."""
+        data, forced = await self._kintaro_get_once(endpoint, params)
+        if forced:
+            await self._relogin_after_force_logout("GET", endpoint)
+            data, forced = await self._kintaro_get_once(endpoint, params)
+            if forced:
+                raise ForceLogoutError(
+                    f"GET {endpoint}: Sitzung direkt nach neuem Login wieder beendet "
+                    f"(errorCode {FORCE_LOGOUT_CODE})"
+                )
+        return data
+
+    async def _kintaro_get_once(self, endpoint: str, params: dict | None) -> tuple[dict | None, bool]:
+        """Ein GET. Liefert (Daten|None, force_logout)."""
         if not await self._ensure_token():
             _LOGGER.error("GET %s abgebrochen — keine gueltige Session", endpoint)
             raise ConnectionError(f"Keine gueltige API-Session fuer {endpoint}")
@@ -545,17 +598,33 @@ class MitsubishiEUClient:
             r = await self._http.get(url, headers=headers)
             rj = r.json()
             if rj.get("state") != "S":
+                if str(rj.get("errorCode")) == FORCE_LOGOUT_CODE:
+                    return None, True
                 _LOGGER.debug("GET %s: error=%s", endpoint, rj.get("errorCode"))
-                return None
+                return None, False
             if rj.get("payload"):
-                return _decrypt_response(rj["payload"], self._enc_key)
-            return rj
+                return _decrypt_response(rj["payload"], self._enc_key), False
+            return rj, False
         except Exception as err:
             _LOGGER.error("GET %s Fehler: %s", endpoint, err)
-            return None
+            return None, False
 
     async def _kintaro_post(self, endpoint: str, params: dict | None = None) -> dict | None:
-        """POST mit JSON-Format."""
+        """POST mit JSON-Format. ForceLogout (600002): einmal neu einloggen und
+        wiederholen, kommt es wieder: ForceLogoutError."""
+        data, forced = await self._kintaro_post_once(endpoint, params)
+        if forced:
+            await self._relogin_after_force_logout("POST", endpoint)
+            data, forced = await self._kintaro_post_once(endpoint, params)
+            if forced:
+                raise ForceLogoutError(
+                    f"POST {endpoint}: Sitzung direkt nach neuem Login wieder beendet "
+                    f"(errorCode {FORCE_LOGOUT_CODE})"
+                )
+        return data
+
+    async def _kintaro_post_once(self, endpoint: str, params: dict | None) -> tuple[dict | None, bool]:
+        """Ein POST. Liefert (Daten|None, force_logout)."""
         if not await self._ensure_token():
             _LOGGER.error("POST %s abgebrochen — keine gueltige Session", endpoint)
             raise ConnectionError(f"Keine gueltige API-Session fuer {endpoint}")
@@ -570,16 +639,18 @@ class MitsubishiEUClient:
             if rj.get("state") != "S":
                 error_code = str(rj.get("errorCode") or "unknown")
                 self.last_error_code = error_code
+                if error_code == FORCE_LOGOUT_CODE:
+                    return None, True
                 _LOGGER.debug("POST %s: error=%s", endpoint, error_code)
-                return None
+                return None, False
             self.last_error_code = None
             if rj.get("payload"):
-                return _decrypt_response(rj["payload"], self._enc_key)
-            return rj
+                return _decrypt_response(rj["payload"], self._enc_key), False
+            return rj, False
         except Exception as err:
             self.last_error_code = "network"
             _LOGGER.error("POST %s Fehler: %s", endpoint, err)
-            return None
+            return None, False
 
     # ------------------------------------------------------------------
     # Fahrzeugliste
@@ -984,23 +1055,35 @@ class MitsubishiEUClient:
 
     async def _remote_command(self, vin: str, endpoint: str) -> bool:
         """Generischer Remote-Command mit PIN-Hash im Body."""
-        if not await self._ensure_pin(vin):
+        self.begin_cycle()
+        try:
+            if not await self._ensure_pin(vin):
+                return False
+            internal_vin = self._internal_vins.get(vin, vin)
+            result = await self._kintaro_post(endpoint, {
+                "vin": vin, "internalVin": internal_vin, "pinHash": self._pin_hash,
+            })
+        except ForceLogoutError as err:
+            _LOGGER.warning("%s", err)
+            self.last_error_code = FORCE_LOGOUT_CODE
             return False
-        internal_vin = self._internal_vins.get(vin, vin)
-        result = await self._kintaro_post(endpoint, {
-            "vin": vin, "internalVin": internal_vin, "pinHash": self._pin_hash,
-        })
         return result is not None
 
     async def async_start_climate(self, vin: str, temperature: float | None = None) -> bool:
         """Klimaanlage starten, optional mit Zieltemperatur."""
-        if not await self._ensure_pin(vin):
+        self.begin_cycle()
+        try:
+            if not await self._ensure_pin(vin):
+                return False
+            internal_vin = self._internal_vins.get(vin, vin)
+            body: dict = {"vin": vin, "internalVin": internal_vin, "pinHash": self._pin_hash}
+            if temperature is not None:
+                body["targetTemperature"] = temperature
+            result = await self._kintaro_post(EP_START_CLIMATE, body)
+        except ForceLogoutError as err:
+            _LOGGER.warning("%s", err)
+            self.last_error_code = FORCE_LOGOUT_CODE
             return False
-        internal_vin = self._internal_vins.get(vin, vin)
-        body: dict = {"vin": vin, "internalVin": internal_vin, "pinHash": self._pin_hash}
-        if temperature is not None:
-            body["targetTemperature"] = temperature
-        result = await self._kintaro_post(EP_START_CLIMATE, body)
         return result is not None
 
     async def async_stop_climate(self, vin: str) -> bool:

@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
+from .api import ForceLogoutError
 from .coordinator import MitsubishiEUEntity, raise_command_rejected
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,6 +97,11 @@ class MitsubishiRefreshButton(MitsubishiEUEntity, ButtonEntity):
         self._attr_icon = "mdi:refresh"
 
     async def async_press(self) -> None:
-        if not await self._client.async_refresh_status(self._vin):
+        self._client.begin_cycle()  # eigener Zyklus: ein Neu-Login nach ForceLogout erlaubt
+        try:
+            ok = await self._client.async_refresh_status(self._vin)
+        except ForceLogoutError:
+            ok = False
+        if not ok:
             raise_command_rejected(self._client, self._vin, "refreshVSR")
         await self.coordinator.async_request_refresh()

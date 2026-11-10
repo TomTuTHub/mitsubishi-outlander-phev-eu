@@ -43,6 +43,10 @@
           "password": "Password",
           "pin": "PIN (4 digits)",
           "update_interval": "Update interval (minutes)"
+        },
+        "data_description": {
+          "password": "Leave empty to keep the current password.",
+          "pin": "Leave empty to keep the current PIN."
         }
       }
     },

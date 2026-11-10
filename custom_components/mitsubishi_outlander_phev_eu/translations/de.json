@@ -43,6 +43,10 @@
           "password": "Passwort",
           "pin": "PIN (4-stellig)",
           "update_interval": "Aktualisierungsintervall (Minuten)"
+        },
+        "data_description": {
+          "password": "Leer lassen, um das bisherige Passwort zu behalten.",
+          "pin": "Leer lassen, um die bisherige PIN zu behalten."
         }
       }
     },

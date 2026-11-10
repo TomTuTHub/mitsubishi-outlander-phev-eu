@@ -19,7 +19,7 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from .api import MitsubishiEUClient
+from .api import ForceLogoutError, MitsubishiEUClient
 from .const import (
     DOMAIN,
     CONF_USERNAME,
@@ -46,6 +46,20 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_UPDATE_INTERVAL, default=DEFAULT_UPDATE_INTERVAL): _NUMBER,
     }
 )
+
+
+_CREDENTIAL_KEYS = (CONF_USERNAME, CONF_PASSWORD, CONF_PIN)
+
+
+def _keep_secret(user_input: dict[str, Any], old: Any, key: str) -> str:
+    """Leeres Feld = bisherigen Wert behalten (PIN/Passwort werden nie vorbelegt)."""
+    value = user_input.get(key)
+    return value if value else old.get(key, "")
+
+
+def _credentials_changed(old: Any, new: dict[str, Any]) -> bool:
+    """Benutzer, Passwort oder PIN anders als gespeichert?"""
+    return any(new.get(k, "") != old.get(k, "") for k in _CREDENTIAL_KEYS)
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
@@ -175,32 +189,44 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             if CONF_UPDATE_INTERVAL in user_input:
                 user_input[CONF_UPDATE_INTERVAL] = int(user_input[CONF_UPDATE_INTERVAL])
-            new_data = {**self._config_entry.data}
+            old = self._config_entry.data
+            new_data = {**old}
             new_data[CONF_USERNAME] = user_input[CONF_USERNAME]
-            new_data[CONF_PASSWORD] = user_input[CONF_PASSWORD]
-            new_data[CONF_PIN] = user_input[CONF_PIN]
-            new_data[CONF_UPDATE_INTERVAL] = user_input[CONF_UPDATE_INTERVAL]
+            new_data[CONF_PASSWORD] = _keep_secret(user_input, old, CONF_PASSWORD)
+            new_data[CONF_PIN] = _keep_secret(user_input, old, CONF_PIN)
+            new_data[CONF_UPDATE_INTERVAL] = user_input.get(
+                CONF_UPDATE_INTERVAL,
+                self._config_entry.options.get(
+                    CONF_UPDATE_INTERVAL, old.get(CONF_UPDATE_INTERVAL, DEFAULT_UPDATE_INTERVAL)
+                ),
+            )
+            new_options = {CONF_UPDATE_INTERVAL: new_data[CONF_UPDATE_INTERVAL]}
 
-            try:
-                await validate_input(self.hass, new_data)
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except NoVehicles:
-                errors["base"] = "no_vehicles"
-            except Exception:
-                _LOGGER.exception("Unexpected exception in options flow")
-                errors["base"] = "unknown"
+            # Pruef-Login nur, wenn sich Zugangsdaten wirklich geaendert haben
+            # (leere Passwort-/PIN-Felder = unveraendert). Dann kostet Speichern nur
+            # den einen Login des Reloads.
+            if _credentials_changed(old, new_data):
+                try:
+                    await validate_input(self.hass, new_data)
+                except InvalidAuth:
+                    errors["base"] = "invalid_auth"
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+                except NoVehicles:
+                    errors["base"] = "no_vehicles"
+                except Exception:
+                    _LOGGER.exception("Unexpected exception in options flow")
+                    errors["base"] = "unknown"
 
             if not errors:
+                # EIN Speicher-Schritt: data und options zusammen. Bis 1.0.9 wurden sie
+                # getrennt gespeichert -> Update-Listener 2x -> 2 Reloads (2 Logins,
+                # Auto 2x geweckt). Das anschliessende Speichern der options durch HA
+                # aendert nichts mehr und loest keinen zweiten Reload aus.
                 self.hass.config_entries.async_update_entry(
-                    self._config_entry, data=new_data
+                    self._config_entry, data=new_data, options=new_options
                 )
-                return self.async_create_entry(
-                    title="",
-                    data={CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL]},
-                )
+                return self.async_create_entry(title="", data=new_options)
 
         return self.async_show_form(
             step_id="init",
@@ -210,11 +236,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         CONF_USERNAME,
                         default=self._config_entry.data.get(CONF_USERNAME, ""),
                     ): _TEXT,
-                    vol.Required(CONF_PASSWORD): _PASSWORD,
-                    vol.Required(
-                        CONF_PIN,
-                        default=self._config_entry.data.get(CONF_PIN, ""),
-                    ): _PASSWORD,
+                    # Leer lassen = unveraendert; nie vorbelegen (PIN stand im Klartext im Formular)
+                    vol.Optional(CONF_PASSWORD): _PASSWORD,
+                    vol.Optional(CONF_PIN): _PASSWORD,
                     vol.Optional(
                         CONF_UPDATE_INTERVAL,
                         default=self._config_entry.options.get(

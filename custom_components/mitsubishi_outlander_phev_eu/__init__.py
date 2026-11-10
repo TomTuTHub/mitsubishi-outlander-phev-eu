@@ -11,7 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import MitsubishiEUClient, VehicleState
+from .api import ForceLogoutError, MitsubishiEUClient, VehicleState
 from .const import (
     DOMAIN,
     CONF_USERNAME,
@@ -36,7 +36,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await client.async_login():
         raise ConfigEntryAuthFailed("Invalid credentials for Mitsubishi Connect EU")
 
-    vehicles = await client.async_get_vehicles()
+    try:
+        vehicles = await client.async_get_vehicles()
+    except ForceLogoutError as err:
+        await client.async_close()
+        raise ConfigEntryNotReady(str(err)) from err
     if not vehicles:
         raise ConfigEntryNotReady("No vehicles found on account")
 
@@ -66,7 +70,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         async def _update_vehicle(v=vin):
             # VSR-Refresh triggern (Auto aufwecken → frische Daten an Server)
-            # Dann mehrfach pollen bis frische Daten ankommen
+            # Dann mehrfach pollen bis frische Daten ankommen.
+            # Ein Zyklus = ein erlaubter Neu-Login nach ForceLogout (600002);
+            # kommt es danach wieder: UpdateFailed sofort statt 90 s Polling
+            client.begin_cycle()
             try:
                 refreshed = await client.async_refresh_status(v)
                 if not refreshed:
