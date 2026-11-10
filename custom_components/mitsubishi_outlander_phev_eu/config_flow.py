@@ -22,6 +22,7 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
+from .api import ForceLogoutError
 from .client import create_client, get_region
 from .const import (
     DOMAIN,
@@ -71,6 +72,14 @@ def _keep_secret(user_input: dict[str, Any], old: dict[str, Any], key: str) -> s
     return value if value else old.get(key, "")
 
 
+_CREDENTIAL_KEYS = (CONF_USERNAME, CONF_PASSWORD, CONF_PIN)
+
+
+def _credentials_changed(old: Any, new: dict[str, Any]) -> bool:
+    """Benutzer, Passwort oder PIN anders als gespeichert?"""
+    return any(new.get(k, "") != old.get(k, "") for k in _CREDENTIAL_KEYS)
+
+
 def _selectable_region(data: dict[str, Any]) -> str:
     """Region des Eintrags als Dropdown-Wert ("jp" der ersten Beta = Variante 1)."""
     region = get_region(data)
@@ -85,7 +94,10 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     try:
         if not await client.async_login():
             raise InvalidAuth
-        vehicles = await client.async_get_vehicles()
+        try:
+            vehicles = await client.async_get_vehicles()
+        except ForceLogoutError as err:
+            raise CannotConnect from err
         if not vehicles:
             raise NoVehicles
         return {"vehicles": vehicles}
@@ -220,29 +232,37 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 ),
             )
 
-            try:
-                await validate_input(self.hass, new_data)
-            except InvalidAuth:
-                errors["base"] = "invalid_auth"
-            except CannotConnect:
-                errors["base"] = "cannot_connect"
-            except NoVehicles:
-                errors["base"] = "no_vehicles"
-            except Exception:
-                _LOGGER.exception("Unexpected exception in options flow")
-                errors["base"] = "unknown"
+            new_options = {
+                CONF_UPDATE_INTERVAL: new_data[CONF_UPDATE_INTERVAL],
+                CONF_WAKE_ON_POLL: user_input.get(CONF_WAKE_ON_POLL, DEFAULT_WAKE_ON_POLL),
+            }
+
+            # Pruef-Login nur, wenn sich Zugangsdaten wirklich geaendert haben
+            # (leere Passwort-/PIN-Felder = unveraendert). Dann kostet Speichern nur
+            # den einen Login des Reloads; jeder Login zaehlt beim IDM und kann die
+            # Sitzung der App stoeren.
+            if _credentials_changed(self._config_entry.data, new_data):
+                try:
+                    await validate_input(self.hass, new_data)
+                except InvalidAuth:
+                    errors["base"] = "invalid_auth"
+                except CannotConnect:
+                    errors["base"] = "cannot_connect"
+                except NoVehicles:
+                    errors["base"] = "no_vehicles"
+                except Exception:
+                    _LOGGER.exception("Unexpected exception in options flow")
+                    errors["base"] = "unknown"
 
             if not errors:
+                # EIN Speicher-Schritt: data und options zusammen. Bis b6 wurden sie
+                # getrennt gespeichert -> Update-Listener 2x -> 2 Reloads (2 Logins,
+                # Auto 2x geweckt). Das anschliessende Speichern der options durch HA
+                # aendert nichts mehr und loest keinen zweiten Reload aus.
                 self.hass.config_entries.async_update_entry(
-                    self._config_entry, data=new_data
+                    self._config_entry, data=new_data, options=new_options
                 )
-                return self.async_create_entry(
-                    title="",
-                    data={
-                        CONF_UPDATE_INTERVAL: new_data[CONF_UPDATE_INTERVAL],
-                        CONF_WAKE_ON_POLL: user_input.get(CONF_WAKE_ON_POLL, DEFAULT_WAKE_ON_POLL),
-                    },
-                )
+                return self.async_create_entry(title="", data=new_options)
 
         return self.async_show_form(
             step_id="init",

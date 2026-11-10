@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from .api import ForceLogoutError
 from .client import create_client
 from .const import (
     DOMAIN,
@@ -108,7 +109,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if not await client.async_login():
         raise ConfigEntryAuthFailed("Invalid credentials for Mitsubishi Connect EU")
 
-    vehicles = await client.async_get_vehicles()
+    try:
+        vehicles = await client.async_get_vehicles()
+    except ForceLogoutError as err:
+        await client.async_close()
+        raise ConfigEntryNotReady(str(err)) from err
     if not vehicles:
         raise ConfigEntryNotReady("No vehicles found on account")
 
@@ -137,6 +142,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             continue
 
         async def _update_vehicle(v=vin):
+            # Ein Zyklus = ein erlaubter Neu-Login nach ForceLogout (600002);
+            # kommt es danach wieder: UpdateFailed sofort statt 90 s Polling
+            begin = getattr(client, "begin_cycle", None)
+            if begin:
+                begin()
             if not wake_on_poll:
                 return await _read_without_wake(client, coordinators.get(v), v)
             return await _read_with_wake(client, v)
