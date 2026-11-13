@@ -24,6 +24,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import MitsubishiEUEntity
+from .session import STATES
 from .api import VehicleState
 
 
@@ -302,6 +303,9 @@ async def async_setup_entry(
         for description in SENSOR_DESCRIPTIONS:
             entities.append(MitsubishiSensor(coordinator, vin, vehicle_info, description))
         entities.append(MitsubishiVehicleStatusSensor(coordinator, vin, vehicle_info))
+        monitor = getattr(data["client"], "session", None)  # US-Client hat keinen
+        if monitor is not None:
+            entities.append(MitsubishiConnectionSensor(coordinator, vin, vehicle_info, monitor))
     async_add_entities(entities)
 
 
@@ -343,3 +347,43 @@ class MitsubishiVehicleStatusSensor(MitsubishiEUEntity, SensorEntity):
         if self.vehicle_state is None:
             return None
         return _build_vehicle_status(self.vehicle_state)
+
+
+class MitsubishiConnectionSensor(MitsubishiEUEntity, SensorEntity):
+    """Diagnose: Zustand der Sitzung (ok / Sitzung verloren / Warte auf Neuanmeldung ...).
+
+    Liest den SessionMonitor des Kontos, nicht coordinator.data: der Grund bleibt
+    sichtbar, auch wenn der Coordinator UpdateFailed meldet."""
+
+    _attr_translation_key = "connection"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = STATES
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:connection"
+
+    def __init__(self, coordinator, vin, vehicle_info, monitor):
+        super().__init__(coordinator, vin, vehicle_info)
+        self._monitor = monitor
+        self._attr_unique_id = f"{vin}_connection"
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(self._monitor.add_listener(self.async_write_ha_state))
+
+    @property
+    def available(self) -> bool:
+        return True  # gerade bei fehlgeschlagenem Update soll der Grund sichtbar sein
+
+    @property
+    def native_value(self) -> str:
+        return self._monitor.state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        m = self._monitor
+        return {
+            "last_relogin": m.last_relogin.isoformat() if m.last_relogin else None,
+            "next_possible_relogin": m.next_relogin.isoformat() if m.next_relogin else None,
+            "relogin_count": m.relogin_count,
+            "reason": m.reason or None,
+        }

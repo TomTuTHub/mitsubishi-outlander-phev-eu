@@ -11,7 +11,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import ForceLogoutError
+from .api import ForceLogoutError, SessionLostError
+from .session import (
+    STATE_NETWORK_ERROR,
+    STATE_OK,
+    STATE_SESSION_LOST,
+    STATE_VEHICLE_NOT_RESPONDING,
+    SessionMonitor,
+)
 from .client import create_client
 from .const import (
     DOMAIN,
@@ -30,6 +37,35 @@ _LOGGER = logging.getLogger(__name__)
 
 def _has_data(state) -> bool:
     return state is not None and (state.battery_level is not None or state.odometer is not None)
+
+
+def _mark_ok(client) -> None:
+    mon = getattr(client, "session", None)
+    if mon is not None:
+        mon.set_state(STATE_OK)
+
+
+def _no_data_error(client, vin) -> UpdateFailed:
+    """Keine Fahrzeugdaten nach 90 s: Grund trennen und im Diagnose-Sensor zeigen.
+
+    Netzwerkfehler / Fahrzeug antwortet nicht (Server liefert gueltige Antworten,
+    Sitzung ok) / Server liefert gar nichts Gueltiges, aber die Sitzung hat seit
+    dem Login noch nie Daten geliefert (kein Neu-Login, der waere sinnlos)."""
+    mon = getattr(client, "session", None)
+    if mon is not None and mon.state == STATE_NETWORK_ERROR:
+        return UpdateFailed(f"Keine Daten von der API erhalten fuer {vin} nach 90s — Netzwerkfehler")
+    if getattr(client, "last_status_valid", 1):
+        if mon is not None:
+            mon.set_state(STATE_VEHICLE_NOT_RESPONDING, "Fahrzeug antwortet nicht")
+        _LOGGER.warning("Fahrzeug antwortet nicht (Sitzung ok): keine Fahrzeugdaten nach 90 s")
+        return UpdateFailed(f"Fahrzeug antwortet nicht (Sitzung ok): keine Daten fuer {vin} nach 90s")
+    if mon is not None:
+        mon.set_state(STATE_SESSION_LOST, "keine gültige Antwort")
+    _LOGGER.warning(
+        "Keine gültige Antwort vom Server nach 90 s; Sitzung unklar, "
+        "kein Neu-Login (Sitzung lieferte seit dem Login noch nie Daten)"
+    )
+    return UpdateFailed(f"Keine gueltige Antwort vom Server fuer {vin} nach 90s (Sitzung unklar)")
 
 
 async def _read_with_wake(client, vin):
@@ -51,16 +87,14 @@ async def _read_with_wake(client, vin):
                     "Frische Daten fuer %s nach %s Sekunden (Versuch %s)",
                     vin, 15 + (attempt - 1) * 10, attempt,
                 )
+                _mark_ok(client)
                 return state
 
         # Nach 90s immer noch keine Daten
         if state is not None and not _has_data(state):
-            raise UpdateFailed(
-                f"Keine Daten von der API erhalten fuer {vin} nach 90s — "
-                "Fahrzeug antwortet nicht oder Session abgelaufen"
-            )
+            raise _no_data_error(client, vin)
         return state
-    except UpdateFailed:
+    except (UpdateFailed, SessionLostError):
         raise
     except Exception as err:
         raise UpdateFailed(f"Fehler beim Aktualisieren von {vin}: {err}") from err
@@ -77,9 +111,12 @@ async def _read_without_wake(client, coordinator, vin):
     hier UpdateFailed -> ConfigEntryNotReady -> Setup-Retry ohne Ende."""
     try:
         state = await client.async_get_vehicle_status(vin)
+    except SessionLostError:
+        raise
     except Exception as err:
         raise UpdateFailed(f"Fehler beim Aktualisieren von {vin}: {err}") from err
     if _has_data(state):
+        _mark_ok(client)
         return state
     previous = getattr(coordinator, "data", None)
     if previous is not None:
@@ -104,6 +141,12 @@ async def _read_without_wake(client, coordinator, vin):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Mitsubishi Connect EU from a config entry."""
     client = create_client(entry.data, use_ha_ssl=True)
+    # Der Monitor ueberlebt ein Neuladen des Eintrags (Optionen speichern): so bleibt
+    # der 10-min-Backoff fuer automatische Neu-Logins erhalten.
+    if hasattr(client, "session"):
+        client.session = hass.data.setdefault(f"{DOMAIN}_sessions", {}).setdefault(
+            entry.entry_id, client.session
+        )
     wake_on_poll = entry.options.get(CONF_WAKE_ON_POLL, DEFAULT_WAKE_ON_POLL)
 
     if not await client.async_login():
@@ -142,14 +185,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             continue
 
         async def _update_vehicle(v=vin):
-            # Ein Zyklus = ein erlaubter Neu-Login nach ForceLogout (600002);
-            # kommt es danach wieder: UpdateFailed sofort statt 90 s Polling
+            # Sitzungsverlust: der Client meldet sich hoechstens einmal je 10 min neu
+            # an (SessionMonitor); hier nur auswerten und den Grund melden.
             begin = getattr(client, "begin_cycle", None)
             if begin:
                 begin()
-            if not wake_on_poll:
-                return await _read_without_wake(client, coordinators.get(v), v)
-            return await _read_with_wake(client, v)
+            try:
+                if not wake_on_poll:
+                    return await _read_without_wake(client, coordinators.get(v), v)
+                return await _read_with_wake(client, v)
+            except SessionLostError as err:
+                if err.auth_rejected:
+                    raise ConfigEntryAuthFailed(
+                        "Mitsubishi Connect EU hat die Zugangsdaten abgelehnt"
+                    ) from err
+                raise UpdateFailed(str(err)) from err
 
         coordinator = DataUpdateCoordinator(
             hass,

@@ -110,6 +110,7 @@ Credentials and the update interval can be changed at any time via **Settings â†
 | Last Trip Duration | min | Duration of the last completed trip |
 | Last Charge Energy | kWh | Energy added during last charge session |
 | Last Charge Duration | min | Duration of last charge session |
+| Connection *(diagnostic)* | â€” | Session state: ok, session lost, waiting for re-login, vehicle not responding, login failed, network error. Attributes: last re-login, next possible re-login, re-login count |
 
 ### Binary Sensors
 
@@ -155,6 +156,7 @@ Credentials and the update interval can be changed at any time via **Settings â†
 - **Remote commands:** After sending a remote command (e.g. start charging), there is a short delay before the vehicle status reflects the change. The integration waits ~15 seconds before refreshing.
 - **Tire pressure:** The API provides tire pressure in kPa. This integration converts and displays it in Bar. Home Assistant's auto-conversion to kPa is suppressed.
 - **PIN is required:** Remote commands (lock/unlock, horn, lights, climate, charging) require the 4-digit PIN. Without a valid PIN, these commands will fail.
+- **One session per account:** Mitsubishi allows only one login per account. If you open the official app, the integration is logged out. It then logs in again **once** automatically and waits at least 10 minutes before it would do so again (every login kicks the app out again). The *Connection* diagnostic sensor shows what happened. If the vehicle itself does not answer while the session is fine, that is reported separately.
 
 ### Charging: start only
 

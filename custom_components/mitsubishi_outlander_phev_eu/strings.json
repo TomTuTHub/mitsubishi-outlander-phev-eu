@@ -86,7 +86,15 @@
       "last_charge_energy": {"name": "Last Charge Energy"},
       "last_charge_duration": {"name": "Last Charge Duration"},
       "battery_12v": {"name": "12V Battery"},
-      "vehicle_status": {"name": "Vehicle Status"}
+      "vehicle_status": {"name": "Vehicle Status"},
+      "connection": {"name": "Connection", "state": {
+        "ok": "OK",
+        "session_lost": "Session lost",
+        "waiting_for_relogin": "Waiting for re-login",
+        "vehicle_not_responding": "Vehicle not responding",
+        "login_failed": "Login failed",
+        "network_error": "Network error"
+      }}
     },
     "binary_sensor": {
       "is_charging": {"name": "Charging"},

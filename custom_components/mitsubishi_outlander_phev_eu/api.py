@@ -24,6 +24,14 @@ from Crypto.Cipher import AES, PKCS1_v1_5
 from Crypto.PublicKey import RSA
 from Crypto.Util.Padding import pad, unpad
 
+from .session import (
+    STATE_LOGIN_FAILED,
+    STATE_NETWORK_ERROR,
+    STATE_OK,
+    STATE_SESSION_LOST,
+    STATE_WAITING_RELOGIN,
+    SessionMonitor,
+)
 from .const import (
     IDM_EP_INIT,
     IDM_EP_LOGIN,
@@ -84,7 +92,36 @@ FORCE_LOGOUT_CODE = "600002"
 
 
 class ForceLogoutError(Exception):
-    """Server meldet ForceLogout (600002) auch nach dem einen erneuten Login."""
+    """Sitzung verloren (Basisklasse; frueher nur errorCode 600002)."""
+
+
+class SessionLostError(ForceLogoutError):
+    """Sitzung verloren und nicht (mehr) automatisch wiederherstellbar: Backoff
+    laeuft, Neu-Login fehlgeschlagen oder Sitzung nach dem Neu-Login wieder tot.
+
+    auth_rejected=True: der Server hat die Zugangsdaten abgelehnt (Reauth noetig)."""
+
+    def __init__(self, message: str, auth_rejected: bool = False) -> None:
+        super().__init__(message)
+        self.auth_rejected = auth_rejected
+
+
+def _session_lost_reason(status: int | None, rj: Any) -> str | None:
+    """Erkennt Sitzungsverlust in einer Server-Antwort. None = kein Sitzungsverlust.
+
+    HTTP 401/403, errorCode 600002 (ForceLogout) oder ein errorCode/eine Meldung,
+    die Token/Sitzung als ungueltig bezeichnet. Gibt nur Code/Status zurueck,
+    nie den Antwortkoerper."""
+    if status in (401, 403):
+        return f"HTTP {status}"
+    if isinstance(rj, dict) and rj.get("state") != "S":
+        code = str(rj.get("errorCode"))
+        if code == FORCE_LOGOUT_CODE:
+            return f"errorCode {FORCE_LOGOUT_CODE}"
+        text = f"{code} {rj.get('message') or ''} {rj.get('errorMessage') or ''}".lower()
+        if any(k in text for k in ("token", "unauthor", "session", "forcelogout", "force_logout")):
+            return f"Token/Sitzung ungueltig (errorCode {code})"
+    return None
 
 
 # ======================================================================
@@ -360,7 +397,8 @@ def _oauth_error(r) -> str | None:
 class MitsubishiEUClient:
 
     def __init__(self, username: str, password: str, pin: str = "", region: str = REGION_EU,
-                 ssl_context=None) -> None:
+                 ssl_context=None, session: SessionMonitor | None = None) -> None:
+        self.session = session if session is not None else SessionMonitor()
         self._p = KINTARO_PROFILES[region]
         self._region = region
         # Fuer Log-Meldungen: "eu" oder "jp_1"
@@ -392,34 +430,85 @@ class MitsubishiEUClient:
         # Login-Weg: EU immer neuer IDM-Login; JP startet beim password grant und
         # wechselt nach einem erfolgreichen Fallback dauerhaft (fuer diesen Client).
         self._use_idm = self._p.get("login") == LOGIN_IDM
-        # ForceLogout (600002): pro Abfrage-Zyklus genau EIN erneuter Login
-        self._force_relogin_used = False
+        # Antworten-Zaehler (Sitzungsverlust ohne eindeutigen Fehlercode erkennen):
+        # gueltig = state "S"; schlecht = Server-Ablehnung/unlesbar; netz = Timeout/Netzfehler
+        self._ok_count = 0
+        self._bad_count = 0
+        self._net_count = 0
+        # Letzter Login vom Server wegen der Zugangsdaten abgelehnt (-> Reauth)
+        self.login_rejected = False
+        self.last_status_valid = 0  # gueltige Antworten der letzten Statusabfrage
+        self._lost_reason = ""
+        self._cycle_logged = False
 
     def begin_cycle(self) -> None:
-        """Neuer Abfrage-Zyklus (Coordinator-Update, Button, Befehl): der eine
-        erlaubte Neu-Login nach ForceLogout steht wieder zur Verfuegung."""
-        self._force_relogin_used = False
+        """Neuer Abfrage-Zyklus (Coordinator-Update, Button, Befehl). Die Log-Zeile
+        "naechster Neu-Login fruehestens ..." kommt je Zyklus nur einmal. Der
+        Neu-Login selbst ist NICHT an den Zyklus gebunden, sondern an den
+        10-min-Backoff des SessionMonitor."""
+        self._cycle_logged = False
 
-    async def _relogin_after_force_logout(self, method: str, endpoint: str) -> None:
-        """Nach errorCode 600002 genau EINMAL neu einloggen. Kommt 600002 im selben
-        Zyklus noch einmal oder klappt der Login nicht: ForceLogoutError (keine Schleife)."""
-        if self._force_relogin_used:
-            raise ForceLogoutError(
-                f"{method} {endpoint}: Sitzung erneut vom Server beendet (errorCode "
-                f"{FORCE_LOGOUT_CODE}) - ist dasselbe Konto gerade woanders angemeldet?"
+    def _warn_cycle(self, msg: str, *args) -> None:
+        if not self._cycle_logged:
+            self._cycle_logged = True
+            _LOGGER.warning(msg, *args)
+
+    async def _recover_session(self, method: str, endpoint: str, reason: str) -> None:
+        """Sitzung verloren: hoechstens EIN automatischer Neu-Login je BACKOFF.
+
+        Erlaubt: Backoff sofort setzen, Refresh-Token zuerst (faellt bei Ablehnung
+        auf den vollen Login zurueck), danach kehrt der Aufrufer zurueck und
+        wiederholt seine Anfrage. Nicht erlaubt oder Login gescheitert:
+        SessionLostError (keine Schleife, keine weiteren Logins bis Ablauf)."""
+        mon = self.session
+        if not mon.can_relogin():
+            mon.set_state(STATE_WAITING_RELOGIN, reason)
+            self._warn_cycle(
+                "Sitzung verloren (%s), nächster Neu-Login frühestens %s",
+                reason, mon.hhmm(mon.next_relogin),
             )
-        self._force_relogin_used = True
-        _LOGGER.warning(
-            "%s %s [Region=%s]: Sitzung vom Server beendet (errorCode %s), melde mich einmal neu an",
-            method, endpoint, self._label, FORCE_LOGOUT_CODE,
-        )
-        self._token = TokenState()
+            raise SessionLostError(
+                f"Sitzung verloren ({reason}); nächster Neu-Login frühestens {mon.hhmm(mon.next_relogin)}"
+            )
+        mon.start_relogin(reason)
+        _LOGGER.warning("Sitzung verloren (%s) – melde neu an", reason)
+        full = mon.force_full_login or not self._token.refresh_token
+        self._token = TokenState(refresh_token="" if full else self._token.refresh_token)
         self._enc_key = None
         self._sign_key = None
-        if not await self.async_login():
-            raise ForceLogoutError(
-                f"{method} {endpoint}: neuer Login nach errorCode {FORCE_LOGOUT_CODE} fehlgeschlagen"
+        self.login_rejected = False
+        ok = await (self.async_login() if full else self.async_refresh_token())
+        if not ok:
+            mon.set_state(STATE_LOGIN_FAILED, reason)
+            _LOGGER.warning(
+                "Sitzung verloren, Neu-Login fehlgeschlagen – nächster Neu-Login frühestens %s",
+                mon.hhmm(mon.next_relogin),
             )
+            raise SessionLostError(
+                f"{method} {endpoint}: Neu-Login nach Sitzungsverlust fehlgeschlagen",
+                auth_rejected=self.login_rejected,
+            )
+
+    def _still_lost(self, method: str, endpoint: str, reason: str) -> SessionLostError:
+        """Sitzung ist nach dem Neu-Login immer noch tot."""
+        mon = self.session
+        mon.force_full_login = True
+        mon.set_state(STATE_WAITING_RELOGIN, reason)
+        self._warn_cycle(
+            "Sitzung verloren, nächster Neu-Login frühestens %s", mon.hhmm(mon.next_relogin)
+        )
+        return SessionLostError(
+            f"{method} {endpoint}: Sitzung nach Neu-Login weiterhin ungültig ({reason})"
+        )
+
+    def _valid_response(self) -> None:
+        """Eine gueltige Server-Antwort: Sitzung lebt."""
+        self._ok_count += 1
+        mon = self.session
+        mon.had_valid_response = True
+        mon.force_full_login = False
+        if mon.state in (STATE_SESSION_LOST, STATE_WAITING_RELOGIN, STATE_LOGIN_FAILED, STATE_NETWORK_ERROR):
+            mon.set_state(STATE_OK)
 
     def _warn_once(self, key, msg: str, *args) -> None:
         """Warnung je Ursache nur einmal, danach Debug (kein Log-Spam bei jedem Poll)."""
@@ -497,6 +586,7 @@ class MitsubishiEUClient:
                 },
             )
             if r.status_code != 200:
+                self.login_rejected = r.status_code in (400, 401)
                 _LOGGER.error(
                     "Login fehlgeschlagen [Region=%s]: HTTP %s, Antwort: %s",
                     self._label, r.status_code, _safe_snippet(r.text),
@@ -566,6 +656,7 @@ class MitsubishiEUClient:
             )
             data = (resp or {}).get("data") or {}
             if status != 200 or str((resp or {}).get("code")) != "200" or not data.get("accessToken"):
+                self.login_rejected = resp is not None  # Server hat geantwortet = Zugangsdaten abgelehnt
                 # code + message only, never the body (may contain tokens)
                 _LOGGER.error(
                     "Login fehlgeschlagen [Region=%s]: HTTP %s, code %s, %s",
@@ -607,6 +698,7 @@ class MitsubishiEUClient:
             self._enc_key = keys["encKey"]
             self._sign_key = keys["signKey"]
             self._pin_verified = False
+            self.session.had_valid_response = False
             return True
         except Exception as err:
             _LOGGER.error(
@@ -667,16 +759,27 @@ class MitsubishiEUClient:
     async def _ensure_token(self) -> bool:
         if self._token.is_valid and self._enc_key:
             return True
+        mon = self.session
+        if mon.state == STATE_LOGIN_FAILED and not mon.can_relogin():
+            _LOGGER.debug("Token abgelaufen, aber Anmeldung zuletzt fehlgeschlagen: warte bis %s",
+                          mon.hhmm(mon.next_relogin))
+            return False
         _LOGGER.debug("Token abgelaufen oder enc_key fehlt, erneuere Session")
+        # async_refresh_token faellt bei Ablehnung selbst auf EINEN vollen Login zurueck
+        # (bis b7 folgte hier ein zweiter, doppelter Login)
         if self._token.refresh_token:
             ok = await self.async_refresh_token()
-            if ok:
-                _LOGGER.debug("Token-Refresh erfolgreich")
-                return True
-            _LOGGER.warning("Token-Refresh fehlgeschlagen, versuche neuen Login")
-        ok = await self.async_login()
-        if not ok:
+        else:
+            ok = await self.async_login()
+        if ok:
+            _LOGGER.debug("Token erneuert")
+        else:
             _LOGGER.error("Login fehlgeschlagen — API-Zugriff nicht moeglich")
+            mon.block_logins("Anmeldung fehlgeschlagen")
+            _LOGGER.warning(
+                "Anmeldung fehlgeschlagen, nächster automatischer Login frühestens %s",
+                mon.hhmm(mon.next_relogin),
+            )
         return ok
 
     # ------------------------------------------------------------------
@@ -756,20 +859,18 @@ class MitsubishiEUClient:
 
         "technisch ausgefallen" = Timeout, Netzfehler, HTTP-Fehler oder unlesbare Antwort.
         Eine saubere Server-Ablehnung (HTTP 200, state != S) ist nur "keine Daten".
-        ForceLogout (600002): einmal neu einloggen und wiederholen, sonst ForceLogoutError."""
-        data, failed, forced = await self._kintaro_get_once(endpoint, params)
-        if forced:
-            await self._relogin_after_force_logout("GET", endpoint)
-            data, failed, forced = await self._kintaro_get_once(endpoint, params)
-            if forced:
-                raise ForceLogoutError(
-                    f"GET {endpoint}: Sitzung direkt nach neuem Login wieder beendet "
-                    f"(errorCode {FORCE_LOGOUT_CODE})"
-                )
+        Sitzungsverlust (600002, HTTP 401/403, Token ungueltig): hoechstens ein
+        Neu-Login je Backoff, dann die Anfrage einmal wiederholen; sonst SessionLostError."""
+        data, failed, lost = await self._kintaro_get_once(endpoint, params)
+        if lost:
+            await self._recover_session("GET", endpoint, self._lost_reason)
+            data, failed, lost = await self._kintaro_get_once(endpoint, params)
+            if lost:
+                raise self._still_lost("GET", endpoint, self._lost_reason)
         return data, failed
 
     async def _kintaro_get_once(self, endpoint: str, params: dict | None) -> tuple[dict | None, bool, bool]:
-        """Ein GET. Liefert (Daten|None, technisch_ausgefallen, force_logout)."""
+        """Ein GET. Liefert (Daten|None, technisch_ausgefallen, sitzung_verloren)."""
         if not await self._ensure_token():
             _LOGGER.error("GET %s abgebrochen — keine gueltige Session", endpoint)
             raise ConnectionError(f"Keine gueltige API-Session fuer {endpoint}")
@@ -783,22 +884,32 @@ class MitsubishiEUClient:
         try:
             r = await self._send("GET", endpoint, url, headers=headers)
             status = r.status_code
+            reason = _session_lost_reason(status, None)
+            if reason:
+                self._lost_reason = reason
+                return None, True, True
             rj = r.json()
+            reason = _session_lost_reason(status, rj)
+            if reason:
+                self._lost_reason = reason
+                return None, True, True
             if rj.get("state") != "S":
-                if str(rj.get("errorCode")) == FORCE_LOGOUT_CODE:
-                    return None, True, True
+                self._bad_count += 1
                 self._warn_once(
                     ("GET", endpoint, status, rj.get("errorCode")),
                     "GET %s [Region=%s]: abgelehnt, HTTP %s, errorCode=%s",
                     endpoint, self._label, status, rj.get("errorCode"),
                 )
                 return None, status != 200, False
+            self._valid_response()
             if rj.get("payload"):
                 return _decrypt_response(rj["payload"], self._enc_key, self._p), False, False
             return rj, False, False
         except httpx.HTTPError:
+            self._net_count += 1
             return None, True, False  # _send hat Timeout/Netzfehler schon geloggt
         except Exception as err:
+            self._bad_count += 1
             _LOGGER.warning(
                 "GET %s [Region=%s]: Antwort unlesbar, HTTP %s: %s",
                 endpoint, self._label, status, _safe_snippet(str(err)),
@@ -810,21 +921,17 @@ class MitsubishiEUClient:
         return (await self._kintaro_get_ex(endpoint, params))[0]
 
     async def _kintaro_post(self, endpoint: str, params: dict | None = None) -> dict | None:
-        """POST mit JSON-Format. ForceLogout (600002): einmal neu einloggen und
-        wiederholen, kommt es wieder: ForceLogoutError."""
-        data, forced = await self._kintaro_post_once(endpoint, params)
-        if forced:
-            await self._relogin_after_force_logout("POST", endpoint)
-            data, forced = await self._kintaro_post_once(endpoint, params)
-            if forced:
-                raise ForceLogoutError(
-                    f"POST {endpoint}: Sitzung direkt nach neuem Login wieder beendet "
-                    f"(errorCode {FORCE_LOGOUT_CODE})"
-                )
+        """POST mit JSON-Format. Sitzungsverlust wie bei _kintaro_get_ex."""
+        data, lost = await self._kintaro_post_once(endpoint, params)
+        if lost:
+            await self._recover_session("POST", endpoint, self._lost_reason)
+            data, lost = await self._kintaro_post_once(endpoint, params)
+            if lost:
+                raise self._still_lost("POST", endpoint, self._lost_reason)
         return data
 
     async def _kintaro_post_once(self, endpoint: str, params: dict | None) -> tuple[dict | None, bool]:
-        """Ein POST. Liefert (Daten|None, force_logout)."""
+        """Ein POST. Liefert (Daten|None, sitzung_verloren)."""
         if not await self._ensure_token():
             _LOGGER.error("POST %s abgebrochen — keine gueltige Session", endpoint)
             raise ConnectionError(f"Keine gueltige API-Session fuer {endpoint}")
@@ -837,12 +944,21 @@ class MitsubishiEUClient:
         try:
             r = await self._send("POST", endpoint, f"{self._p['kintaro_base']}{endpoint}", content=enc_body, headers=headers)
             status = r.status_code
+            reason = _session_lost_reason(status, None)
+            if reason:
+                self._lost_reason = reason
+                self.last_error_code = str(status)
+                return None, True
             rj = r.json()
+            reason = _session_lost_reason(status, rj)
+            if reason:
+                self._lost_reason = reason
+                self.last_error_code = str(rj.get("errorCode") or status)
+                return None, True
             if rj.get("state") != "S":
                 error_code = str(rj.get("errorCode") or "unknown")
                 self.last_error_code = error_code
-                if error_code == FORCE_LOGOUT_CODE:
-                    return None, True
+                self._bad_count += 1
                 self._warn_once(
                     ("POST", endpoint, status, error_code),
                     "POST %s [Region=%s]: abgelehnt, HTTP %s, errorCode=%s",
@@ -850,14 +966,17 @@ class MitsubishiEUClient:
                 )
                 return None, False
             self.last_error_code = None
+            self._valid_response()
             if rj.get("payload"):
                 return _decrypt_response(rj["payload"], self._enc_key, self._p), False
             return rj, False
         except httpx.HTTPError:
             self.last_error_code = "network"  # _send hat schon geloggt
+            self._net_count += 1
             return None, False
         except Exception as err:
             self.last_error_code = "network"
+            self._bad_count += 1
             _LOGGER.warning(
                 "POST %s [Region=%s]: Antwort unlesbar, HTTP %s: %s",
                 endpoint, self._label, status, _safe_snippet(str(err)),
@@ -888,6 +1007,31 @@ class MitsubishiEUClient:
     # ------------------------------------------------------------------
 
     async def async_get_vehicle_status(self, vin: str) -> VehicleState:
+        """Fahrzeugstatus lesen. Kam in dieser Abfrage keine einzige gueltige Antwort
+        (alle Endpoints abgelehnt/unlesbar, kein Timeout), obwohl die Sitzung seit
+        dem Login schon gueltige Antworten lieferte, gilt die Sitzung als verloren:
+        hoechstens ein Neu-Login je Backoff, dann einmal neu lesen. Gueltige
+        Antworten ohne Fahrzeugdaten heissen "Fahrzeug antwortet nicht" (Sitzung ok)."""
+        mon = self.session
+        for attempt in (1, 2):
+            ok0, bad0, net0 = self._ok_count, self._bad_count, self._net_count
+            state = await self._read_vehicle_status(vin)
+            self.last_status_valid = self._ok_count - ok0
+            bad, net = self._bad_count - bad0, self._net_count - net0
+            if self.last_status_valid:
+                return state
+            if net and not bad:
+                mon.set_state(STATE_NETWORK_ERROR, "Netzwerkfehler")
+                return state
+            if not mon.had_valid_response or attempt == 2:
+                # Sitzung war nie gueltig bzw. Neu-Login brachte nichts: kein weiterer Login
+                if attempt == 2:
+                    raise self._still_lost("GET", "status", "leere Antworten")
+                return state
+            await self._recover_session("GET", "status", "leere Antworten")
+        return state
+
+    async def _read_vehicle_status(self, vin: str) -> VehicleState:
         state = VehicleState(vin=vin)
         internal_vin = self._internal_vins.get(vin, vin)
         state.internal_vin = internal_vin
@@ -1305,6 +1449,10 @@ class MitsubishiEUClient:
             _LOGGER.warning("%s", err)
             self.last_error_code = FORCE_LOGOUT_CODE
             return False
+        except ConnectionError as err:
+            _LOGGER.warning("%s", err)
+            self.last_error_code = "no_session"
+            return False
         return result is not None
 
     async def async_start_climate(self, vin: str, temperature: float | None = None) -> bool:
@@ -1321,6 +1469,10 @@ class MitsubishiEUClient:
         except ForceLogoutError as err:
             _LOGGER.warning("%s", err)
             self.last_error_code = FORCE_LOGOUT_CODE
+            return False
+        except ConnectionError as err:
+            _LOGGER.warning("%s", err)
+            self.last_error_code = "no_session"
             return False
         return result is not None
 

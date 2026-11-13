@@ -126,6 +126,17 @@
       },
       "vehicle_status": {
         "name": "車両ステータス"
+      },
+      "connection": {
+        "name": "接続",
+        "state": {
+          "ok": "OK",
+          "session_lost": "セッション切断",
+          "waiting_for_relogin": "再ログイン待ち",
+          "vehicle_not_responding": "車両が応答しません",
+          "login_failed": "ログイン失敗",
+          "network_error": "ネットワークエラー"
+        }
       }
     },
     "binary_sensor": {
