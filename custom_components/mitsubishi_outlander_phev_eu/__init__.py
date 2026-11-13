@@ -11,7 +11,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import ForceLogoutError, MitsubishiEUClient, VehicleState
+from .api import ForceLogoutError, MitsubishiEUClient, SessionLostError, VehicleState
+from .session import (
+    STATE_NETWORK_ERROR,
+    STATE_OK,
+    STATE_SESSION_LOST,
+    STATE_VEHICLE_NOT_RESPONDING,
+    SessionMonitor,
+)
 from .const import (
     DOMAIN,
     CONF_USERNAME,
@@ -27,10 +34,14 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Mitsubishi Connect EU from a config entry."""
+    # Der Monitor ueberlebt ein Neuladen des Eintrags (Optionen speichern): so bleibt
+    # der 10-min-Backoff fuer automatische Neu-Logins erhalten.
+    monitor = hass.data.setdefault(f"{DOMAIN}_sessions", {}).setdefault(entry.entry_id, SessionMonitor())
     client = MitsubishiEUClient(
         username=entry.data[CONF_USERNAME],
         password=entry.data[CONF_PASSWORD],
         pin=entry.data.get(CONF_PIN, ""),
+        session=monitor,
     )
 
     if not await client.async_login():
@@ -71,8 +82,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def _update_vehicle(v=vin):
             # VSR-Refresh triggern (Auto aufwecken → frische Daten an Server)
             # Dann mehrfach pollen bis frische Daten ankommen.
-            # Ein Zyklus = ein erlaubter Neu-Login nach ForceLogout (600002);
-            # kommt es danach wieder: UpdateFailed sofort statt 90 s Polling
+            # Sitzungsverlust: der Client meldet sich hoechstens einmal je 10 min
+            # neu an (SessionMonitor); hier nur auswerten und den Grund melden.
             client.begin_cycle()
             try:
                 refreshed = await client.async_refresh_status(v)
@@ -91,16 +102,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             "Frische Daten fuer %s nach %s Sekunden (Versuch %s)",
                             v, 15 + (attempt - 1) * 10 if attempt > 1 else 15, attempt,
                         )
+                        monitor.set_state(STATE_OK)
                         return state
 
-                # Nach 90s immer noch keine Daten
+                # Nach 90s immer noch keine Daten: Grund trennen
                 if state and (state.battery_level is None and state.odometer is None):
+                    if monitor.state == STATE_NETWORK_ERROR:
+                        raise UpdateFailed(
+                            f"Keine Daten von der API erhalten fuer {v} nach 90s — Netzwerkfehler"
+                        )
+                    if client.last_status_valid:
+                        monitor.set_state(STATE_VEHICLE_NOT_RESPONDING, "Fahrzeug antwortet nicht")
+                        _LOGGER.warning(
+                            "Fahrzeug antwortet nicht (Sitzung ok): keine Fahrzeugdaten nach 90 s"
+                        )
+                        raise UpdateFailed(
+                            f"Fahrzeug antwortet nicht (Sitzung ok): keine Daten fuer {v} nach 90s"
+                        )
+                    monitor.set_state(STATE_SESSION_LOST, "keine gültige Antwort")
+                    _LOGGER.warning(
+                        "Keine gültige Antwort vom Server nach 90 s; Sitzung unklar, "
+                        "kein Neu-Login (Sitzung lieferte seit dem Login noch nie Daten)"
+                    )
                     raise UpdateFailed(
-                        f"Keine Daten von der API erhalten fuer {v} nach 90s — "
-                        "Fahrzeug antwortet nicht oder Session abgelaufen"
+                        f"Keine gueltige Antwort vom Server fuer {v} nach 90s (Sitzung unklar)"
                     )
                 return state
-            except UpdateFailed:
+            except SessionLostError as err:
+                if err.auth_rejected:
+                    raise ConfigEntryAuthFailed(
+                        "Mitsubishi Connect EU hat die Zugangsdaten abgelehnt"
+                    ) from err
+                raise UpdateFailed(str(err)) from err
+            except (UpdateFailed, ConfigEntryAuthFailed):
                 raise
             except Exception as err:
                 raise UpdateFailed(f"Fehler beim Aktualisieren von {v}: {err}") from err

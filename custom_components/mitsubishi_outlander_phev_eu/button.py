@@ -97,7 +97,7 @@ class MitsubishiRefreshButton(MitsubishiEUEntity, ButtonEntity):
         self._attr_icon = "mdi:refresh"
 
     async def async_press(self) -> None:
-        self._client.begin_cycle()  # eigener Zyklus: ein Neu-Login nach ForceLogout erlaubt
+        self._client.begin_cycle()  # neuer Zyklus (Log-Zeilen); Neu-Login regelt der 10-min-Backoff
         try:
             ok = await self._client.async_refresh_status(self._vin)
         except ForceLogoutError:

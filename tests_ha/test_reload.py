@@ -15,6 +15,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.mitsubishi_outlander_phev_eu.api import VehicleState
+from custom_components.mitsubishi_outlander_phev_eu.session import SessionMonitor
 from custom_components.mitsubishi_outlander_phev_eu.const import (
     CONF_PASSWORD, CONF_PIN, CONF_UPDATE_INTERVAL, CONF_USERNAME, DOMAIN,
 )
@@ -27,8 +28,10 @@ class FakeClient:
     instances: list["FakeClient"] = []
     role = "setup"                       # "setup" (Reload) oder "validate" (Pruef-Login)
 
-    def __init__(self, username, password, pin=""):
+    def __init__(self, username, password, pin="", session=None):
         self.username, self.password, self.pin = username, password, pin
+        self.session = session if session is not None else SessionMonitor()
+        self.last_status_valid = 1
         self.logins = 0
         self.refresh_calls = 0
         self.closed = False
@@ -318,3 +321,95 @@ async def test_coordinator_update_starts_new_cycle(hass):
     coord = hass.data[DOMAIN][entry.entry_id]["coordinators"][VIN]
     await coord.async_refresh()
     assert calls == [1]
+
+
+# ---------------------------------------------------------------------------
+# 1.0.11: Sitzungsverlust -> Diagnose-Sensor "Verbindung" zeigt den Grund
+# ---------------------------------------------------------------------------
+
+def _conn_state(hass, entry):
+    reg = er.async_get(hass)
+    ent = reg.async_get_entity_id("sensor", DOMAIN, f"{VIN}_connection")
+    assert ent, "Diagnose-Sensor fehlt"
+    return reg.async_get(ent), hass.states.get(ent)
+
+
+async def test_connection_sensor_ok_and_diagnostic(hass):
+    entry = await _setup(hass)
+    reg_entry, st = _conn_state(hass, entry)
+    assert reg_entry.entity_category.value == "diagnostic"
+    assert st.state == "ok"
+    assert st.attributes["relogin_count"] == 0
+    assert st.attributes["last_relogin"] is None
+    assert set(st.attributes["options"]) == {
+        "ok", "session_lost", "waiting_for_relogin", "vehicle_not_responding",
+        "login_failed", "network_error"}
+
+
+async def test_vehicle_not_responding_shows_reason_and_keeps_sensor_available(hass, monkeypatch, caplog):
+    entry = await _setup(hass)
+    coord = hass.data[DOMAIN][entry.entry_id]["coordinators"][VIN]
+
+    orig = FakeClient.async_get_vehicle_status
+
+    async def empty(self, vin):
+        self.last_status_valid = 3          # Server antwortet, Fahrzeug nicht
+        return VehicleState(vin=vin)
+    monkeypatch.setattr(FakeClient, "async_get_vehicle_status", empty)
+    caplog.set_level(logging.WARNING)
+    await coord.async_refresh()
+    await hass.async_block_till_done()
+    assert coord.last_update_success is False
+    _, st = _conn_state(hass, entry)
+    assert st.state == "vehicle_not_responding"      # nicht "unavailable"
+    msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(m.startswith("Fahrzeug antwortet nicht (Sitzung ok)") for m in msgs), msgs
+    # Fahrzeug meldet sich wieder -> ok
+    monkeypatch.setattr(FakeClient, "async_get_vehicle_status", orig)
+    await coord.async_refresh()
+    await hass.async_block_till_done()
+    assert _conn_state(hass, entry)[1].state == "ok"
+
+
+async def test_session_lost_shows_waiting_state_with_attributes(hass, monkeypatch):
+    from custom_components.mitsubishi_outlander_phev_eu.api import SessionLostError
+    from custom_components.mitsubishi_outlander_phev_eu import session as sess
+    entry = await _setup(hass)
+    coord = hass.data[DOMAIN][entry.entry_id]["coordinators"][VIN]
+    mon = hass.data[DOMAIN][entry.entry_id]["client"].session
+
+    async def lost(self, vin):
+        mon.start_relogin("errorCode 600002")
+        mon.set_state(sess.STATE_WAITING_RELOGIN, "errorCode 600002")
+        raise SessionLostError("Sitzung verloren (errorCode 600002); naechster Neu-Login fruehestens 12:34")
+    monkeypatch.setattr(FakeClient, "async_refresh_status", lost)
+    await coord.async_refresh()
+    await hass.async_block_till_done()
+    assert coord.last_update_success is False
+    _, st = _conn_state(hass, entry)
+    assert st.state == "waiting_for_relogin"
+    assert st.attributes["relogin_count"] == 1
+    assert st.attributes["last_relogin"] and st.attributes["next_possible_relogin"]
+    assert st.attributes["reason"] == "errorCode 600002"
+
+
+async def test_rejected_credentials_in_poll_raise_auth_failed(hass, monkeypatch):
+    from homeassistant.exceptions import ConfigEntryAuthFailed
+    from custom_components.mitsubishi_outlander_phev_eu.api import SessionLostError
+    entry = await _setup(hass)
+    coord = hass.data[DOMAIN][entry.entry_id]["coordinators"][VIN]
+
+    async def rejected(self, vin):
+        raise SessionLostError("Neu-Login fehlgeschlagen", auth_rejected=True)
+    monkeypatch.setattr(FakeClient, "async_refresh_status", rejected)
+    with pytest.raises(ConfigEntryAuthFailed):
+        await coord.update_method()
+
+
+async def test_backoff_monitor_survives_reload(hass):
+    entry = await _setup(hass)
+    mon = hass.data[DOMAIN][entry.entry_id]["client"].session
+    mon.start_relogin("errorCode 600002")
+    await _save_options(hass, entry, 30)
+    mon2 = hass.data[DOMAIN][entry.entry_id]["client"].session
+    assert mon2 is mon and mon2.relogin_count == 1 and not mon2.can_relogin()
