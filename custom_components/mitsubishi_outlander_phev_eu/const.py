@@ -17,6 +17,9 @@ IDM_EP_LOGIN = "/api/v1/login"
 IDM_EP_REFRESH = "/api/v1/refreshToken"
 IDM_PAYLOAD_KEY = "F)J@NcRfUjXn2r4u7x!A%D*G-KaPdSgV"  # Utils.encryptAES key (APK 3.2.0)
 IDM_APP_VERSION = "3.2.0"
+# X-Device = Build.MODEL in the app. Since 2026-11 the IDM gateway answers
+# "X-Device: homeassistant" with an HTML 403 before the request reaches the API.
+IDM_DEVICE_NAME = "Pixel 8"
 EU_KINTARO_BASE = "https://kintaro.prod.goa-eu.mitsubishi-motors.com/prod"
 
 # Client credentials (from APK v1.3.1, unchanged in 3.2.0)

@@ -38,6 +38,7 @@ from .const import (
     IDM_EP_REFRESH,
     IDM_PAYLOAD_KEY,
     IDM_APP_VERSION,
+    IDM_DEVICE_NAME,
     EU_KINTARO_BASE,
     EU_CLIENT_ID,
     EU_CLIENT_SECRET,
@@ -328,7 +329,7 @@ def _idm_headers(device_id: str, ts: str | None = None, nonce: str | None = None
     return {
         "Content-Type": "application/json",
         "User-Agent": "okhttp/4.12.0",
-        "X-Device": "homeassistant",
+        "X-Device": IDM_DEVICE_NAME,
         "X-Device-Id": device_id,
         "X-Locale": "en-GB",
         "X-Timezone": "1",
