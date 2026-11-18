@@ -328,7 +328,7 @@ def _idm_headers(device_id: str, ts: str | None = None, nonce: str | None = None
     return {
         "Content-Type": "application/json",
         "User-Agent": "okhttp/4.12.0",
-        "X-Device": "homeassistant",
+        "X-Device": "",
         "X-Device-Id": device_id,
         "X-Locale": "en-GB",
         "X-Timezone": "1",
