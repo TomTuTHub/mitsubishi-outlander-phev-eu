@@ -134,7 +134,6 @@ def test_eu_idm_headers_byte_identical_to_v108():
     assert h == {
         "Content-Type": "application/json",
         "User-Agent": "okhttp/4.12.0",
-        "X-Device": "homeassistant",
         "X-Device-Id": "dev1",
         "X-Locale": "en-GB",
         "X-Timezone": "1",
