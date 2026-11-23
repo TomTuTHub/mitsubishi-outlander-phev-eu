@@ -322,13 +322,15 @@ def _idm_device_id(username: str) -> str:
     return _sha256h("ha-outlander-phev-eu:" + (username or ""))[:16]
 
 def _idm_headers(device_id: str, ts: str | None = None, nonce: str | None = None) -> dict[str, str]:
-    """Headers as sent by the app; X-Signature = md5(clientId + nonce + timestamp)."""
+    """Headers as sent by the app; X-Signature = md5(clientId + nonce + timestamp).
+
+    No "X-Device" header: since ~2026-11-20 the IDM answers 403 to "X-Device: homeassistant".
+    """
     ts = ts or str(int(time.time() * 1000))
     nonce = nonce or str(uuid.uuid4())
     return {
         "Content-Type": "application/json",
         "User-Agent": "okhttp/4.12.0",
-        "X-Device": "homeassistant",
         "X-Device-Id": device_id,
         "X-Locale": "en-GB",
         "X-Timezone": "1",
