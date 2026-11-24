@@ -187,7 +187,7 @@ EP_UPDATE_CHARGING_BASE_COST = "/status/updateChargingBaseCost/v1"
 # --- Wecken vor Fernbefehlen (b10, wie App 3.2.0 C3334u2.wakeUpVehicle) ---
 EP_WAKE_UP_VEHICLE = "/vehicle/wakeUpVehicle/v1"
 # Wartezeit nach einem echten Weckruf, bevor der Befehl geht
-WAKE_SETTLE_S = 15
+WAKE_SETTLE_S = 20
 # requestId-Polling (App: pollingInterval Vorgabe 5 s, duration Vorgabe 60 s)
 POLL_INTERVAL_DEFAULT_S = 5
 POLL_DURATION_DEFAULT_S = 60

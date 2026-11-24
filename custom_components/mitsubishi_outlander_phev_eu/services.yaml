@@ -1,0 +1,16 @@
+request_status:
+  fields:
+    request_id:
+      required: true
+      example: "0123456789abcdef"
+      selector:
+        text:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: mitsubishi_outlander_phev_eu
+    vin:
+      required: false
+      selector:
+        text:

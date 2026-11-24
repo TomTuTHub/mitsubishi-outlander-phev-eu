@@ -67,78 +67,196 @@
   },
   "entity": {
     "sensor": {
-      "battery_level": {"name": "Batteriestand"},
-      "ev_range": {"name": "Elektrische Reichweite"},
-      "fuel_range": {"name": "Benzin-Reichweite"},
-      "total_range": {"name": "Gesamtreichweite"},
-      "charging_remaining_time": {"name": "Restladezeit"},
-      "odometer": {"name": "Kilometerstand"},
-      "speed": {"name": "Geschwindigkeit"},
-      "target_temperature": {"name": "Zieltemperatur"},
-      "tire_fl_pressure": {"name": "Reifen vorne links"},
-      "tire_fr_pressure": {"name": "Reifen vorne rechts"},
-      "tire_rl_pressure": {"name": "Reifen hinten links"},
-      "tire_rr_pressure": {"name": "Reifen hinten rechts"},
-      "charging_base_cost": {"name": "Ladestrompreis"},
-      "firmware_version": {"name": "TCU Firmware"},
-      "last_trip_distance": {"name": "Letzte Fahrt Entfernung"},
-      "last_trip_duration": {"name": "Letzte Fahrt Dauer"},
-      "last_charge_energy": {"name": "Letzte Ladung Energie"},
-      "last_charge_duration": {"name": "Letzte Ladung Dauer"},
-      "battery_12v": {"name": "12V Batterie"},
-      "vehicle_status": {"name": "Fahrzeugstatus"},
-      "connection": {"name": "Verbindung", "state": {
-        "ok": "OK",
-        "session_lost": "Sitzung verloren",
-        "waiting_for_relogin": "Warte auf Neuanmeldung",
-        "vehicle_not_responding": "Fahrzeug antwortet nicht",
-        "login_failed": "Anmeldung fehlgeschlagen",
-        "network_error": "Netzwerkfehler"
-      }}
+      "battery_level": {
+        "name": "Batteriestand"
+      },
+      "ev_range": {
+        "name": "Elektrische Reichweite"
+      },
+      "fuel_range": {
+        "name": "Benzin-Reichweite"
+      },
+      "total_range": {
+        "name": "Gesamtreichweite"
+      },
+      "charging_remaining_time": {
+        "name": "Restladezeit"
+      },
+      "odometer": {
+        "name": "Kilometerstand"
+      },
+      "speed": {
+        "name": "Geschwindigkeit"
+      },
+      "target_temperature": {
+        "name": "Zieltemperatur"
+      },
+      "tire_fl_pressure": {
+        "name": "Reifen vorne links"
+      },
+      "tire_fr_pressure": {
+        "name": "Reifen vorne rechts"
+      },
+      "tire_rl_pressure": {
+        "name": "Reifen hinten links"
+      },
+      "tire_rr_pressure": {
+        "name": "Reifen hinten rechts"
+      },
+      "charging_base_cost": {
+        "name": "Ladestrompreis"
+      },
+      "firmware_version": {
+        "name": "TCU Firmware"
+      },
+      "last_trip_distance": {
+        "name": "Letzte Fahrt Entfernung"
+      },
+      "last_trip_duration": {
+        "name": "Letzte Fahrt Dauer"
+      },
+      "last_charge_energy": {
+        "name": "Letzte Ladung Energie"
+      },
+      "last_charge_duration": {
+        "name": "Letzte Ladung Dauer"
+      },
+      "battery_12v": {
+        "name": "12V Batterie"
+      },
+      "vehicle_status": {
+        "name": "Fahrzeugstatus"
+      },
+      "connection": {
+        "name": "Verbindung",
+        "state": {
+          "ok": "OK",
+          "session_lost": "Sitzung verloren",
+          "waiting_for_relogin": "Warte auf Neuanmeldung",
+          "vehicle_not_responding": "Fahrzeug antwortet nicht",
+          "login_failed": "Anmeldung fehlgeschlagen",
+          "network_error": "Netzwerkfehler"
+        }
+      }
     },
     "binary_sensor": {
-      "is_charging": {"name": "Ladevorgang"},
-      "is_plugged_in": {"name": "Ladekabel angeschlossen"},
-      "doors_locked": {"name": "Türverriegelung"},
-      "engine_on": {"name": "Motor läuft"},
-      "ac_on": {"name": "Klimaanlage"},
-      "brake_warning": {"name": "Bremsenwarnung"},
-      "engine_oil_warning": {"name": "Ölstandswarnung"},
-      "mil_warning": {"name": "Motorkontrollleuchte"},
-      "abs_warning": {"name": "ABS-Warnung"},
-      "airbag_warning": {"name": "Airbag-Warnung"},
-      "door_fl_open": {"name": "Tür vorne links"},
-      "door_fr_open": {"name": "Tür vorne rechts"},
-      "door_rl_open": {"name": "Tür hinten links"},
-      "door_rr_open": {"name": "Tür hinten rechts"},
-      "door_hood_open": {"name": "Motorhaube"},
-      "door_trunk_open": {"name": "Heckklappe"},
-      "window_fl_open": {"name": "Fenster vorne links"},
-      "window_fr_open": {"name": "Fenster vorne rechts"},
-      "window_rl_open": {"name": "Fenster hinten links"},
-      "window_rr_open": {"name": "Fenster hinten rechts"},
-      "window_sunroof_open": {"name": "Schiebedach"},
-      "headlights_on": {"name": "Scheinwerfer"},
-      "charging_ready": {"name": "Ladebereit"},
-      "charge_disabled": {"name": "Laden deaktiviert"}
+      "is_charging": {
+        "name": "Ladevorgang"
+      },
+      "is_plugged_in": {
+        "name": "Ladekabel angeschlossen"
+      },
+      "doors_locked": {
+        "name": "Türverriegelung"
+      },
+      "engine_on": {
+        "name": "Motor läuft"
+      },
+      "ac_on": {
+        "name": "Klimaanlage"
+      },
+      "brake_warning": {
+        "name": "Bremsenwarnung"
+      },
+      "engine_oil_warning": {
+        "name": "Ölstandswarnung"
+      },
+      "mil_warning": {
+        "name": "Motorkontrollleuchte"
+      },
+      "abs_warning": {
+        "name": "ABS-Warnung"
+      },
+      "airbag_warning": {
+        "name": "Airbag-Warnung"
+      },
+      "door_fl_open": {
+        "name": "Tür vorne links"
+      },
+      "door_fr_open": {
+        "name": "Tür vorne rechts"
+      },
+      "door_rl_open": {
+        "name": "Tür hinten links"
+      },
+      "door_rr_open": {
+        "name": "Tür hinten rechts"
+      },
+      "door_hood_open": {
+        "name": "Motorhaube"
+      },
+      "door_trunk_open": {
+        "name": "Heckklappe"
+      },
+      "window_fl_open": {
+        "name": "Fenster vorne links"
+      },
+      "window_fr_open": {
+        "name": "Fenster vorne rechts"
+      },
+      "window_rl_open": {
+        "name": "Fenster hinten links"
+      },
+      "window_rr_open": {
+        "name": "Fenster hinten rechts"
+      },
+      "window_sunroof_open": {
+        "name": "Schiebedach"
+      },
+      "headlights_on": {
+        "name": "Scheinwerfer"
+      },
+      "charging_ready": {
+        "name": "Ladebereit"
+      },
+      "charge_disabled": {
+        "name": "Laden deaktiviert"
+      }
     },
     "device_tracker": {
-      "location": {"name": "Standort"}
+      "location": {
+        "name": "Standort"
+      }
     },
     "switch": {
-      "climate": {"name": "Klimaanlage"}
+      "climate": {
+        "name": "Klimaanlage"
+      },
+      "remote_engine": {
+        "name": "Motor-Remote (Diagnose)",
+        "state_attributes": {
+          "warning": {
+            "name": "Hinweis"
+          },
+          "last_command": {
+            "name": "Letzter Befehl"
+          }
+        }
+      }
     },
     "button": {
-      "start_charge": {"name": "Laden starten"},
-      "horn": {"name": "Hupe"},
-      "lights": {"name": "Lichthupe"},
-      "refresh": {"name": "Status aktualisieren"}
+      "start_charge": {
+        "name": "Laden starten"
+      },
+      "horn": {
+        "name": "Hupe"
+      },
+      "lights": {
+        "name": "Lichthupe"
+      },
+      "refresh": {
+        "name": "Status aktualisieren"
+      }
     },
     "lock": {
-      "door_lock": {"name": "Türschloss"}
+      "door_lock": {
+        "name": "Türschloss"
+      }
     },
     "climate": {
-      "climate": {"name": "Klimaanlage"}
+      "climate": {
+        "name": "Klimaanlage"
+      }
     }
   },
   "exceptions": {
@@ -150,6 +268,12 @@
     },
     "vehicle_rejected": {
       "message": "Das Auto hat den Befehl {command} abgelehnt (Status {status})."
+    },
+    "entry_not_found": {
+      "message": "Kein geladener Mitsubishi-Outlander-Eintrag passt."
+    },
+    "entry_ambiguous": {
+      "message": "Mehr als ein Eintrag geladen: bitte config_entry_id oder vin angeben."
     }
   },
   "selector": {
@@ -157,6 +281,26 @@
       "options": {
         "eu": "Europa",
         "jp_1": "Japan / Thailand"
+      }
+    }
+  },
+  "services": {
+    "request_status": {
+      "name": "Befehlsstatus abfragen",
+      "description": "Fragt beim Mitsubishi-Server EINMAL den Status eines Fernbefehls (requestId) ab. Kein Login, kein Wecken, kein Befehl.",
+      "fields": {
+        "request_id": {
+          "name": "Request-ID",
+          "description": "requestId des Fernbefehls (Attribut last_command)."
+        },
+        "config_entry_id": {
+          "name": "Integrationseintrag",
+          "description": "Nur nötig bei mehr als einem Eintrag."
+        },
+        "vin": {
+          "name": "VIN",
+          "description": "Alternative zum Eintrag: Fahrzeug des gewünschten Eintrags."
+        }
       }
     }
   }

@@ -29,6 +29,7 @@ async def async_setup_entry(
         client = data["client"]
         _async_remove_charge_switch(hass, vin)
         entities.append(MitsubishiClimateSwitch(coordinator, vin, vehicle_info, client))
+        entities.append(MitsubishiRemoteEngineSwitch(coordinator, vin, vehicle_info, client))
     async_add_entities(entities)
 
 
@@ -114,3 +115,45 @@ class MitsubishiClimateSwitch(MitsubishiEUEntity, SwitchEntity):
 
     async def async_turn_off(self, **kwargs) -> None:
         await self._async_command(False, self._client.async_stop_climate, "stopClimate")
+
+
+ENGINE_WARNING = "Startet beim PHEV möglicherweise den Benzinmotor. Nur zur Diagnose."
+
+
+class MitsubishiRemoteEngineSwitch(MitsubishiClimateSwitch):
+    """b11, NUR DIAGNOSE (standardmaessig deaktiviert): Motor-Remote-Einschaltung (Vorklimatisierung ueber startEngine).
+
+    Gleicher Ablauf und gleicher Body wie der Klima-Schalter (Wecken mit Sperre,
+    frische Nonce und pinHash, targetTemperature als String, temperatureUnit C,
+    hvacSettings, requestId-Polling, kein Nachversuch); nur der Endpunkt ist
+    startEngine/stopEngine. Laut Mitsubishi-Mails der Weg, der zuletzt geklappt hat."""
+
+    def __init__(self, coordinator, vin, vehicle_info, client):
+        super().__init__(coordinator, vin, vehicle_info, client)
+        self._attr_unique_id = f"{vin}_remote_engine"
+        self._attr_translation_key = "remote_engine"
+        self._attr_icon = "mdi:engine"
+        # Nur Diagnosewerkzeug: startEngine kann beim PHEV den Benzinmotor starten
+        self._attr_entity_registry_enabled_default = False
+
+    @property
+    def is_on(self) -> bool | None:
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+        if self.vehicle_state is None:
+            return None
+        return self.vehicle_state.engine_on
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        last = getattr(self._client, "last_engine_command", {}).get(self._vin)
+        attrs = {"warning": ENGINE_WARNING}
+        if last:
+            attrs["last_command"] = dict(last)
+        return attrs
+
+    async def async_turn_on(self, **kwargs) -> None:
+        await self._async_command(True, self._client.async_start_engine, "startEngine")
+
+    async def async_turn_off(self, **kwargs) -> None:
+        await self._async_command(False, self._client.async_stop_engine, "stopEngine")

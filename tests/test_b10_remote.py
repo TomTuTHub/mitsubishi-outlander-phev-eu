@@ -140,7 +140,7 @@ def test_order_wake_nonce_command_batch_and_settle(monkeypatch):
     assert srv.bodies(WAKE) == [{"vin": VIN, "internalVin": "IVIN1"}]
     assert srv.bodies(BATCH)[0] == {"requestIdList": [{"requestId": "REQ-1"}]}
     assert h.sleeps == [const.WAKE_SETTLE_S, 5, 5]
-    assert const.WAKE_SETTLE_S == 15
+    assert const.WAKE_SETTLE_S == 20  # b11: Obergrenze 10-20 s (vorher 15)
     assert h.client.last_error_code is None
     assert h.client.last_request_id == "REQ-1"
 
@@ -393,7 +393,7 @@ def test_last_climate_command_attribute_data(monkeypatch, caplog, statuses, comm
     with caplog.at_level(logging.INFO):
         run(h.client.async_start_climate(VIN))
     last = h.client.last_climate_command[VIN]
-    assert set(last) == {"command", "result", "request_id", "status", "error", "at"}
+    assert {"command", "result", "request_id", "status", "error", "at"} <= set(last)  # b11: + Diagnose
     assert last["command"] == "startClimate"
     assert last["result"] == result and last["status"] == status and last["error"] == error
     assert VIN not in json.dumps(last) and PIN not in json.dumps(last)
@@ -491,7 +491,7 @@ def test_location_still_uses_remembered_hash():
 
 def test_manifest_version_b10():
     m = json.loads((_PKG / "manifest.json").read_text(encoding="utf-8"))
-    assert m["version"] == "1.1.0b10"
+    assert m["version"].startswith("1.1.0b1")  # b11 baut auf b10 auf
 
 
 # ---------------------------------------------------------------- Entitaeten

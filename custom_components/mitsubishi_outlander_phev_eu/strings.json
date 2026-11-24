@@ -67,78 +67,196 @@
   },
   "entity": {
     "sensor": {
-      "battery_level": {"name": "Battery Level"},
-      "ev_range": {"name": "EV Range"},
-      "fuel_range": {"name": "Fuel Range"},
-      "total_range": {"name": "Total Range"},
-      "charging_remaining_time": {"name": "Charging Remaining Time"},
-      "odometer": {"name": "Odometer"},
-      "speed": {"name": "Speed"},
-      "target_temperature": {"name": "Target Temperature"},
-      "tire_fl_pressure": {"name": "Tire Front Left"},
-      "tire_fr_pressure": {"name": "Tire Front Right"},
-      "tire_rl_pressure": {"name": "Tire Rear Left"},
-      "tire_rr_pressure": {"name": "Tire Rear Right"},
-      "charging_base_cost": {"name": "Charging Base Cost"},
-      "firmware_version": {"name": "TCU Firmware"},
-      "last_trip_distance": {"name": "Last Trip Distance"},
-      "last_trip_duration": {"name": "Last Trip Duration"},
-      "last_charge_energy": {"name": "Last Charge Energy"},
-      "last_charge_duration": {"name": "Last Charge Duration"},
-      "battery_12v": {"name": "12V Battery"},
-      "vehicle_status": {"name": "Vehicle Status"},
-      "connection": {"name": "Connection", "state": {
-        "ok": "OK",
-        "session_lost": "Session lost",
-        "waiting_for_relogin": "Waiting for re-login",
-        "vehicle_not_responding": "Vehicle not responding",
-        "login_failed": "Login failed",
-        "network_error": "Network error"
-      }}
+      "battery_level": {
+        "name": "Battery Level"
+      },
+      "ev_range": {
+        "name": "EV Range"
+      },
+      "fuel_range": {
+        "name": "Fuel Range"
+      },
+      "total_range": {
+        "name": "Total Range"
+      },
+      "charging_remaining_time": {
+        "name": "Charging Remaining Time"
+      },
+      "odometer": {
+        "name": "Odometer"
+      },
+      "speed": {
+        "name": "Speed"
+      },
+      "target_temperature": {
+        "name": "Target Temperature"
+      },
+      "tire_fl_pressure": {
+        "name": "Tire Front Left"
+      },
+      "tire_fr_pressure": {
+        "name": "Tire Front Right"
+      },
+      "tire_rl_pressure": {
+        "name": "Tire Rear Left"
+      },
+      "tire_rr_pressure": {
+        "name": "Tire Rear Right"
+      },
+      "charging_base_cost": {
+        "name": "Charging Base Cost"
+      },
+      "firmware_version": {
+        "name": "TCU Firmware"
+      },
+      "last_trip_distance": {
+        "name": "Last Trip Distance"
+      },
+      "last_trip_duration": {
+        "name": "Last Trip Duration"
+      },
+      "last_charge_energy": {
+        "name": "Last Charge Energy"
+      },
+      "last_charge_duration": {
+        "name": "Last Charge Duration"
+      },
+      "battery_12v": {
+        "name": "12V Battery"
+      },
+      "vehicle_status": {
+        "name": "Vehicle Status"
+      },
+      "connection": {
+        "name": "Connection",
+        "state": {
+          "ok": "OK",
+          "session_lost": "Session lost",
+          "waiting_for_relogin": "Waiting for re-login",
+          "vehicle_not_responding": "Vehicle not responding",
+          "login_failed": "Login failed",
+          "network_error": "Network error"
+        }
+      }
     },
     "binary_sensor": {
-      "is_charging": {"name": "Charging"},
-      "is_plugged_in": {"name": "Plugged In"},
-      "doors_locked": {"name": "Doors Locked"},
-      "engine_on": {"name": "Engine Running"},
-      "ac_on": {"name": "Air Conditioning"},
-      "brake_warning": {"name": "Brake Warning"},
-      "engine_oil_warning": {"name": "Engine Oil Warning"},
-      "mil_warning": {"name": "Check Engine"},
-      "abs_warning": {"name": "ABS Warning"},
-      "airbag_warning": {"name": "Airbag Warning"},
-      "door_fl_open": {"name": "Door Front Left"},
-      "door_fr_open": {"name": "Door Front Right"},
-      "door_rl_open": {"name": "Door Rear Left"},
-      "door_rr_open": {"name": "Door Rear Right"},
-      "door_hood_open": {"name": "Hood"},
-      "door_trunk_open": {"name": "Trunk"},
-      "window_fl_open": {"name": "Window Front Left"},
-      "window_fr_open": {"name": "Window Front Right"},
-      "window_rl_open": {"name": "Window Rear Left"},
-      "window_rr_open": {"name": "Window Rear Right"},
-      "window_sunroof_open": {"name": "Sunroof"},
-      "headlights_on": {"name": "Headlights"},
-      "charging_ready": {"name": "Charging Ready"},
-      "charge_disabled": {"name": "Charging Disabled"}
+      "is_charging": {
+        "name": "Charging"
+      },
+      "is_plugged_in": {
+        "name": "Plugged In"
+      },
+      "doors_locked": {
+        "name": "Doors Locked"
+      },
+      "engine_on": {
+        "name": "Engine Running"
+      },
+      "ac_on": {
+        "name": "Air Conditioning"
+      },
+      "brake_warning": {
+        "name": "Brake Warning"
+      },
+      "engine_oil_warning": {
+        "name": "Engine Oil Warning"
+      },
+      "mil_warning": {
+        "name": "Check Engine"
+      },
+      "abs_warning": {
+        "name": "ABS Warning"
+      },
+      "airbag_warning": {
+        "name": "Airbag Warning"
+      },
+      "door_fl_open": {
+        "name": "Door Front Left"
+      },
+      "door_fr_open": {
+        "name": "Door Front Right"
+      },
+      "door_rl_open": {
+        "name": "Door Rear Left"
+      },
+      "door_rr_open": {
+        "name": "Door Rear Right"
+      },
+      "door_hood_open": {
+        "name": "Hood"
+      },
+      "door_trunk_open": {
+        "name": "Trunk"
+      },
+      "window_fl_open": {
+        "name": "Window Front Left"
+      },
+      "window_fr_open": {
+        "name": "Window Front Right"
+      },
+      "window_rl_open": {
+        "name": "Window Rear Left"
+      },
+      "window_rr_open": {
+        "name": "Window Rear Right"
+      },
+      "window_sunroof_open": {
+        "name": "Sunroof"
+      },
+      "headlights_on": {
+        "name": "Headlights"
+      },
+      "charging_ready": {
+        "name": "Charging Ready"
+      },
+      "charge_disabled": {
+        "name": "Charging Disabled"
+      }
     },
     "device_tracker": {
-      "location": {"name": "Location"}
+      "location": {
+        "name": "Location"
+      }
     },
     "switch": {
-      "climate": {"name": "Climate"}
+      "climate": {
+        "name": "Climate"
+      },
+      "remote_engine": {
+        "name": "Remote engine (diagnostics)",
+        "state_attributes": {
+          "warning": {
+            "name": "Warning"
+          },
+          "last_command": {
+            "name": "Last command"
+          }
+        }
+      }
     },
     "button": {
-      "start_charge": {"name": "Start charging"},
-      "horn": {"name": "Horn"},
-      "lights": {"name": "Lights"},
-      "refresh": {"name": "Refresh Status"}
+      "start_charge": {
+        "name": "Start charging"
+      },
+      "horn": {
+        "name": "Horn"
+      },
+      "lights": {
+        "name": "Lights"
+      },
+      "refresh": {
+        "name": "Refresh Status"
+      }
     },
     "lock": {
-      "door_lock": {"name": "Door Lock"}
+      "door_lock": {
+        "name": "Door Lock"
+      }
     },
     "climate": {
-      "climate": {"name": "Climate"}
+      "climate": {
+        "name": "Climate"
+      }
     }
   },
   "exceptions": {
@@ -150,6 +268,12 @@
     },
     "vehicle_rejected": {
       "message": "The vehicle rejected the command {command} (status {status})."
+    },
+    "entry_not_found": {
+      "message": "No loaded Mitsubishi Outlander entry matches."
+    },
+    "entry_ambiguous": {
+      "message": "More than one entry is loaded: please pass config_entry_id or vin."
     }
   },
   "selector": {
@@ -157,6 +281,26 @@
       "options": {
         "eu": "Europe",
         "jp_1": "Japan / Thailand"
+      }
+    }
+  },
+  "services": {
+    "request_status": {
+      "name": "Request status",
+      "description": "Asks the Mitsubishi server ONCE for the status of a remote command (requestId). No login, no wake-up, no command.",
+      "fields": {
+        "request_id": {
+          "name": "Request ID",
+          "description": "requestId of the remote command (attribute last_command)."
+        },
+        "config_entry_id": {
+          "name": "Config entry",
+          "description": "Only needed with more than one entry."
+        },
+        "vin": {
+          "name": "VIN",
+          "description": "Alternative to the config entry: vehicle of the entry to use."
+        }
       }
     }
   }

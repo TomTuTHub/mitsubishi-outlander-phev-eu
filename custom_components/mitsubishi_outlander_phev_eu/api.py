@@ -447,6 +447,11 @@ class MitsubishiEUClient:
         # b10: letzter Klimabefehl je VIN (startClimate/stopClimate/startEngine/stopEngine)
         # als Attribut "last_command" am Klima-Schalter, ohne VIN/PIN
         self.last_climate_command: dict[str, dict] = {}
+        # b11: letzter Motor-Remote-Befehl je VIN (startEngine/stopEngine), Attribut
+        # "last_command" am Schalter "Motor-Remote (Diagnose)"
+        self.last_engine_command: dict[str, dict] = {}
+        # b11: Diagnose des laufenden Fernbefehls (ohne VIN/PIN/Token)
+        self._diag: dict = {}
         self._warned: set = set()
         # Login-Weg: EU immer neuer IDM-Login; JP startet beim password grant und
         # wechselt nach einem erfolgreichen Fallback dauerhaft (fuer diesen Client).
@@ -1481,7 +1486,9 @@ class MitsubishiEUClient:
         now = _monotonic()
         if now < self._wake_until.get(vin, 0.0):
             _LOGGER.debug("wakeUpVehicle uebersprungen, Auto ist noch wach (Sperre laeuft)")
+            self._diag["wake"] = "skipped_lock"
             return
+        self._diag["wake"] = "failed"
         result = await self._kintaro_post(EP_WAKE_UP_VEHICLE, {"vin": vin, "internalVin": internal_vin})
         if result is None:
             _LOGGER.warning(
@@ -1490,6 +1497,8 @@ class MitsubishiEUClient:
             )
             return
         duration = self._num(result.get("wakeUpDuration"), 0.0)
+        self._diag["wake"] = "ran"
+        self._diag["wake_up_duration"] = result.get("wakeUpDuration")
         self._wake_until[vin] = _monotonic() + duration
         _LOGGER.debug("wakeUpVehicle ok, wakeUpDuration=%s s, warte %s s", duration, WAKE_SETTLE_S)
         await asyncio.sleep(WAKE_SETTLE_S)
@@ -1530,6 +1539,8 @@ class MitsubishiEUClient:
     async def _await_command_result(self, endpoint: str, result: dict) -> bool:
         """requestId bis zum Ende von duration abfragen. 1 = laeuft, 2 = Erfolg, sonst abgelehnt."""
         request_id = result.get("requestId")
+        self._diag["duration"] = result.get("duration")
+        self._diag["polling_interval"] = result.get("pollingInterval")
         if not request_id:
             _LOGGER.info(
                 "%s [Region=%s]: vom Server angenommen (state S), keine requestId, "
@@ -1547,6 +1558,7 @@ class MitsubishiEUClient:
         while waited < duration:
             await asyncio.sleep(interval)
             waited += interval
+            self._diag["polls"] = self._diag.get("polls", 0) + 1
             data = await self._kintaro_post(
                 EP_BATCH_REQUEST_STATUS, {"requestIdList": [{"requestId": request_id}]})
             status = None
@@ -1585,6 +1597,10 @@ class MitsubishiEUClient:
     async def _send_vehicle_command(self, vin: str, endpoint: str, extra: dict | None = None) -> bool:
         """Ein Fernbefehl: Wecken, frischer Hash, Befehl, requestId-Polling. Kein Nachversuch."""
         self._last_result = "failed"
+        # b11: Diagnose ohne Debug-Modus (keine VIN/PIN/Token)
+        self._diag = {"wake": None, "wake_up_duration": None, "duration": None,
+                      "polling_interval": None, "polls": 0}
+        started = _monotonic()
         try:
             return await self._send_vehicle_command_inner(vin, endpoint, extra)
         finally:
@@ -1596,13 +1612,28 @@ class MitsubishiEUClient:
                 "status": self.last_command_status,
                 "error": self.last_error_code,
                 "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "wake": self._diag.get("wake"),
+                "wake_up_duration": self._diag.get("wake_up_duration"),
+                "duration": self._diag.get("duration"),
+                "polling_interval": self._diag.get("polling_interval"),
+                "polls": self._diag.get("polls", 0),
+                "elapsed_s": round(max(_monotonic() - started, 0.0), 1),
             }
             if endpoint in (EP_START_CLIMATE, EP_STOP_CLIMATE, EP_START_ENGINE, EP_STOP_ENGINE):
                 self.last_climate_command[vin] = entry
-            _LOGGER.info(
-                "Fernbefehl %s [Region=%s]: Ergebnis %s, requestId=%s, Status %s, Fehler %s",
+            if endpoint in (EP_START_ENGINE, EP_STOP_ENGINE):
+                self.last_engine_command[vin] = entry
+            # Eine Ergebniszeile je Befehl: INFO bei ok, sonst WARNING (HA zeigt INFO
+            # fuer custom_components nur mit passend gesetztem Logger)
+            level = logging.INFO if entry["result"] == "ok" else logging.WARNING
+            _LOGGER.log(
+                level,
+                "Fernbefehl %s [Region=%s]: Ergebnis %s, requestId=%s, Status %s, Fehler %s, "
+                "wake=%s, wakeUpDuration=%s, duration=%s, pollingInterval=%s, "
+                "Statusabfragen=%s, Gesamtdauer=%s s",
                 command, self._label, entry["result"], entry["request_id"],
-                entry["status"], entry["error"],
+                entry["status"], entry["error"], entry["wake"], entry["wake_up_duration"],
+                entry["duration"], entry["polling_interval"], entry["polls"], entry["elapsed_s"],
             )
 
     async def _send_vehicle_command_inner(self, vin: str, endpoint: str, extra: dict | None) -> bool:
@@ -1678,6 +1709,41 @@ class MitsubishiEUClient:
 
     async def async_stop_engine(self, vin: str) -> bool:
         return await self._remote_command(vin, EP_STOP_ENGINE)
+
+    async def async_request_status(self, request_id: str) -> dict:
+        """b11, Dienst request_status: GENAU EIN getBatchRequestStatus ueber die bestehende
+        Sitzung. Kein Login, kein Token-Refresh, kein Wecken, kein Befehl, kein Nachversuch.
+        Ergebnis ohne VIN-Felder."""
+        request_id = str(request_id)
+        out: dict = {"request_id": request_id, "status": None,
+                     "request_status_list": [], "error": None}
+        if not (self._token.is_valid and self._enc_key):
+            out["error"] = "no_session"
+        else:
+            try:
+                data, lost = await self._kintaro_post_once(
+                    EP_BATCH_REQUEST_STATUS, {"requestIdList": [{"requestId": request_id}]})
+            except ConnectionError:
+                data, lost = None, True
+            if lost:
+                out["error"] = "no_session"
+            elif not isinstance(data, dict):
+                out["error"] = self.last_error_code or "no_data"
+            else:
+                items = []
+                for item in data.get("requestStatusList") or []:
+                    if not isinstance(item, dict):
+                        continue
+                    clean = {k: v for k, v in item.items() if "vin" not in str(k).lower()}
+                    items.append(clean)
+                    if str(item.get("requestId")) == request_id:
+                        out["status"] = item.get("status")
+                out["request_status_list"] = items
+        _LOGGER.info(
+            "Dienst request_status [Region=%s]: requestId=%s, Status %s, Fehler %s",
+            self._label, request_id, out["status"], out["error"],
+        )
+        return out
 
     async def async_take_photo(self, vin: str) -> bool:
         return await self._remote_command(vin, EP_TAKE_PHOTO)

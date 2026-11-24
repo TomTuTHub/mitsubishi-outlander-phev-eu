@@ -9,6 +9,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import ForceLogoutError, SessionLostError
@@ -20,6 +22,7 @@ from .session import (
     SessionMonitor,
 )
 from .client import create_client
+from .services import async_setup_services
 from .const import (
     DOMAIN,
     CONF_USERNAME,
@@ -33,6 +36,14 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Dienste einmal je HA-Start registrieren (b11: request_status)."""
+    async_setup_services(hass)
+    return True
 
 
 def _has_data(state) -> bool:

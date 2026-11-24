@@ -52,12 +52,18 @@ def _install_ha_stubs():
             SWITCH="switch", CLIMATE="climate", DEVICE_TRACKER="device_tracker",
             SELECT="select", TIME="time", NUMBER="number"),
             "EntityCategory": SimpleNamespace(DIAGNOSTIC="diagnostic", CONFIG="config")},
-        "homeassistant.core": {"HomeAssistant": object},
+        "homeassistant.core": {"HomeAssistant": object, "ServiceCall": object,
+                               "ServiceResponse": dict,
+                               "SupportsResponse": SimpleNamespace(ONLY="only", OPTIONAL="optional")},
         "homeassistant.exceptions": {
             "ConfigEntryAuthFailed": type("ConfigEntryAuthFailed", (Exception,), {}),
             "ConfigEntryNotReady": type("ConfigEntryNotReady", (Exception,), {}),
-            "HomeAssistantError": type("HomeAssistantError", (Exception,), {})},
+            "HomeAssistantError": type("HomeAssistantError", (Exception,), {}),
+            "ServiceValidationError": type("ServiceValidationError", (Exception,), {})},
         "homeassistant.helpers": {},
+        "homeassistant.helpers.config_validation": {
+            "config_entry_only_config_schema": lambda domain: None, "string": str},
+        "homeassistant.helpers.typing": {"ConfigType": dict},
         "homeassistant.helpers.device_registry": {"DeviceInfo": dict},
         "homeassistant.helpers.entity_platform": {"AddEntitiesCallback": object},
         "homeassistant.helpers.update_coordinator": {
