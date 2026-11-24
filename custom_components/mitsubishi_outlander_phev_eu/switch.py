@@ -70,6 +70,13 @@ class MitsubishiClimateSwitch(MitsubishiEUEntity, SwitchEntity):
             return None
         return self.vehicle_state.ac_on
 
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """b10: Ergebnis des letzten Klimabefehls (command, result, request_id, status,
+        error, at). result: ok | rejected | no_response | accepted_no_request_id | failed."""
+        last = getattr(self._client, "last_climate_command", {}).get(self._vin)
+        return {"last_command": dict(last)} if last else None
+
     async def _async_settle(self, state: bool) -> None:
         """Optimistisch anzeigen, Refresh abwarten, dann echten Wert uebernehmen.
 
@@ -84,12 +91,26 @@ class MitsubishiClimateSwitch(MitsubishiEUEntity, SwitchEntity):
         self._optimistic_state = None
         self.async_write_ha_state()
 
+    async def _async_command(self, state: bool, call, command: str) -> None:
+        """b10: sofort optimistisch schalten, dann das echte Ergebnis abwarten
+        (Wecken + requestId-Polling im Client, bis zu duration). Lehnt das Auto ab
+        oder antwortet nicht, faellt der Schalter auf den alten Zustand zurueck."""
+        self._optimistic_state = state
+        self.async_write_ha_state()
+        try:
+            ok = await call(self._vin)
+        except Exception:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+        if not ok:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise_command_rejected(self._client, self._vin, command)
+        await self._async_settle(state)
+
     async def async_turn_on(self, **kwargs) -> None:
-        if not await self._client.async_start_climate(self._vin):
-            raise_command_rejected(self._client, self._vin, "startClimate")
-        await self._async_settle(True)
+        await self._async_command(True, self._client.async_start_climate, "startClimate")
 
     async def async_turn_off(self, **kwargs) -> None:
-        if not await self._client.async_stop_climate(self._vin):
-            raise_command_rejected(self._client, self._vin, "stopClimate")
-        await self._async_settle(False)
+        await self._async_command(False, self._client.async_stop_climate, "stopClimate")

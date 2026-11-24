@@ -7,7 +7,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, ENTITY_SOURCE
+from .const import DOMAIN, ENTITY_SOURCE, ERR_VEHICLE_NO_RESPONSE, ERR_VEHICLE_REJECTED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,19 +17,32 @@ def raise_command_rejected(client, vin: str, command: str) -> None:
 
     Der Nutzertext kommt uebersetzt aus strings.json ("exceptions") und nennt
     den Cloud-Fehlercode des letzten POSTs; die Log-Zeile bleibt englisch und
-    nennt zusaetzlich die VIN. Wird von switch.py und button.py genutzt.
+    nennt zusaetzlich die requestId (seit b10 ohne VIN). Wird von switch.py,
+    climate.py und button.py genutzt.
+
+    Seit b10 zwei eigene Texte fuer das Ergebnis des requestId-Pollings:
+    "vehicle_no_response" (Auto hat bis duration nicht geantwortet) und
+    "vehicle_rejected:<status>" (Auto hat den Befehl abgelehnt).
     """
     code = getattr(client, "last_error_code", None) or "unknown"
+    request_id = getattr(client, "last_request_id", None) or "-"
     _LOGGER.error(
-        "Mitsubishi Connect rejected remote command %s for VIN %s (error %s)",
+        "Mitsubishi Connect remote command %s failed (error %s, requestId %s)",
         command,
-        vin,
         code,
+        request_id,
     )
+    if code == ERR_VEHICLE_NO_RESPONSE:
+        key, placeholders = "vehicle_no_response", {"command": command}
+    elif code.startswith(ERR_VEHICLE_REJECTED + ":"):
+        key = "vehicle_rejected"
+        placeholders = {"command": command, "status": code.split(":", 1)[1]}
+    else:
+        key, placeholders = "command_rejected", {"command": command, "code": code}
     raise HomeAssistantError(
         translation_domain=DOMAIN,
-        translation_key="command_rejected",
-        translation_placeholders={"command": command, "code": code},
+        translation_key=key,
+        translation_placeholders=placeholders,
     )
 
 

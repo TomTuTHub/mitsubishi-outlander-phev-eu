@@ -144,6 +144,12 @@
   "exceptions": {
     "command_rejected": {
       "message": "Mitsubishi Connect hat den Befehl {command} abgelehnt (Fehler {code})."
+    },
+    "vehicle_no_response": {
+      "message": "Das Auto hat auf den Befehl {command} nicht geantwortet. Er wurde nicht erneut gesendet, bitte später noch einmal versuchen oder am Auto prüfen."
+    },
+    "vehicle_rejected": {
+      "message": "Das Auto hat den Befehl {command} abgelehnt (Status {status})."
     }
   },
   "selector": {

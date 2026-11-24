@@ -5,6 +5,7 @@ POST-Requests verwenden JSON.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -16,7 +17,7 @@ import time
 import urllib.parse
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -72,6 +73,13 @@ from .const import (
     EP_GEOFENCE_ALERT,
     EP_SPEED_ALERT,
     EP_CURFEW_ALERT,
+    EP_WAKE_UP_VEHICLE,
+    WAKE_SETTLE_S,
+    POLL_INTERVAL_DEFAULT_S,
+    POLL_DURATION_DEFAULT_S,
+    POLL_DURATION_MAX_S,
+    ERR_VEHICLE_NO_RESPONSE,
+    ERR_VEHICLE_REJECTED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -84,6 +92,8 @@ HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 # Zeitbudget fuer die optionalen Status-Endpoints pro Abfrage: ist es aufgebraucht,
 # werden die restlichen uebersprungen statt weitere Timeouts aufzustapeln
 STATUS_BUDGET_S = 30.0
+# Uhr fuer die Wecksperre (in Tests ersetzbar, ohne die Event-Loop-Uhr anzufassen)
+_monotonic = time.monotonic
 
 # errorCode "ForceLogout" (Enum der App): der Server hat die Sitzung beendet,
 # typisch weil sich dasselbe Konto woanders angemeldet hat. Die Sitzung ist tot,
@@ -424,7 +434,19 @@ class MitsubishiEUClient:
         self.last_error_code: str | None = None
         self._internal_vins: dict[str, str] = {}
         self._pin_verified = False
+        # Nur noch fuer Location/refreshVSR (verifyPIN beim Statusabruf). Fernbefehle
+        # holen seit b10 je Befehl eine eigene Nonce und einen frischen Hash.
         self._pin_hash: str | None = None
+        # b10: Wecksperre je VIN (monotonic-Zeitpunkt, bis zu dem nicht erneut geweckt wird)
+        self._wake_until: dict[str, float] = {}
+        # b10: letzte getClimateDetails-Antwort je VIN (hvacSettings, Zieltemperatur)
+        self._last_climate: dict[str, dict] = {}
+        # b10: requestId und Polling-Status des letzten Fernbefehls
+        self.last_request_id: str | None = None
+        self.last_command_status: int | None = None
+        # b10: letzter Klimabefehl je VIN (startClimate/stopClimate/startEngine/stopEngine)
+        # als Attribut "last_command" am Klima-Schalter, ohne VIN/PIN
+        self.last_climate_command: dict[str, dict] = {}
         self._warned: set = set()
         # Login-Weg: EU immer neuer IDM-Login; JP startet beim password grant und
         # wechselt nach einem erfolgreichen Fallback dauerhaft (fuer diesen Client).
@@ -1077,6 +1099,7 @@ class MitsubishiEUClient:
         climate = await _opt("climate", EP_CLIMATE_DETAILS, params)
         if climate:
             state.raw_data["climate"] = climate
+            self._last_climate[vin] = climate
             state = self._parse_climate(climate, state)
 
         # Motor
@@ -1434,16 +1457,165 @@ class MitsubishiEUClient:
     # Remote Commands (alle brauchen PIN)
     # ------------------------------------------------------------------
 
-    async def _remote_command(self, vin: str, endpoint: str) -> bool:
-        """Generischer Remote-Command mit PIN-Hash im Body."""
-        self.begin_cycle()
+    # Ablauf je Befehl (wie App 3.2.0, Befund L366):
+    #   1. hoechstens ein wakeUpVehicle (Sperre ueber wakeUpDuration), danach WAKE_SETTLE_S
+    #   2. generateServerNonce mit frischer 32-Byte-Client-Nonce -> frischer pinHash
+    #   3. der Befehl selbst (kein verifyPIN dazwischen)
+    #   4. requestId per getBatchRequestStatus abfragen, bis duration um ist
+    # Kein automatischer Nachversuch. Einzige Ausnahme bleibt der Sitzungsverlust
+    # VOR der Annahme (Server hat den Befehl nie angenommen): Neu-Login, neuer Hash,
+    # einmal neu senden. Ein Befehl mit state "S" wird nie ein zweites Mal geschickt.
+
+    @staticmethod
+    def _num(value: Any, default: float) -> float:
         try:
-            if not await self._ensure_pin(vin):
-                return False
+            n = float(value)
+        except (TypeError, ValueError):
+            return default
+        return n if n > 0 else default
+
+    async def _wake_vehicle(self, vin: str, internal_vin: str) -> None:
+        """Auto einmal wecken, ausser die letzte wakeUpDuration laeuft noch.
+
+        Scheitert das Wecken, nur warnen: der Befehl geht trotzdem raus."""
+        now = _monotonic()
+        if now < self._wake_until.get(vin, 0.0):
+            _LOGGER.debug("wakeUpVehicle uebersprungen, Auto ist noch wach (Sperre laeuft)")
+            return
+        result = await self._kintaro_post(EP_WAKE_UP_VEHICLE, {"vin": vin, "internalVin": internal_vin})
+        if result is None:
+            _LOGGER.warning(
+                "wakeUpVehicle [Region=%s] fehlgeschlagen (Fehler %s), Befehl wird trotzdem gesendet",
+                self._label, self.last_error_code,
+            )
+            return
+        duration = self._num(result.get("wakeUpDuration"), 0.0)
+        self._wake_until[vin] = _monotonic() + duration
+        _LOGGER.debug("wakeUpVehicle ok, wakeUpDuration=%s s, warte %s s", duration, WAKE_SETTLE_S)
+        await asyncio.sleep(WAKE_SETTLE_S)
+
+    async def _fresh_pin_hash(self, vin: str, internal_vin: str) -> str | None:
+        """Neue Server-Nonce holen und daraus einen frischen pinHash bilden (ohne verifyPIN)."""
+        if not self._pin:
+            _LOGGER.warning("Kein PIN konfiguriert")
+            self.last_error_code = "no_pin"
+            return None
+        client_nonce_b64 = base64.b64encode(secrets.token_bytes(32)).decode()
+        r_nonce = await self._kintaro_post(EP_GENERATE_NONCE, {
+            "vin": vin, "internalVin": internal_vin, "clientNonce": client_nonce_b64,
+        })
+        if not r_nonce or not r_nonce.get("serverNonce"):
+            if self.last_error_code is None:
+                self.last_error_code = "nonce_failed"
+            return None
+        return _compute_pin_hash(client_nonce_b64, r_nonce["serverNonce"], self._pin)
+
+    async def _post_command(self, vin: str, internal_vin: str, endpoint: str,
+                            extra: dict | None) -> dict | None:
+        """Frischen Hash holen und den Befehl senden. Bei Sitzungsverlust (Befehl vom
+        Server NICHT angenommen) einmal neu einloggen, neuen Hash holen, einmal neu senden."""
+        for attempt in (1, 2):
+            pin_hash = await self._fresh_pin_hash(vin, internal_vin)
+            if pin_hash is None:
+                return None
+            body = {"vin": vin, "internalVin": internal_vin, "pinHash": pin_hash, **(extra or {})}
+            data, lost = await self._kintaro_post_once(endpoint, body)
+            if not lost:
+                return data
+            if attempt == 2:
+                raise self._still_lost("POST", endpoint, self._lost_reason)
+            await self._recover_session("POST", endpoint, self._lost_reason)
+        return None  # pragma: no cover
+
+    async def _await_command_result(self, endpoint: str, result: dict) -> bool:
+        """requestId bis zum Ende von duration abfragen. 1 = laeuft, 2 = Erfolg, sonst abgelehnt."""
+        request_id = result.get("requestId")
+        if not request_id:
+            _LOGGER.info(
+                "%s [Region=%s]: vom Server angenommen (state S), keine requestId, "
+                "Ergebnis des Fahrzeugs unbekannt", endpoint, self._label,
+            )
+            self._last_result = "accepted_no_request_id"
+            return True
+        self.last_request_id = str(request_id)
+        # Wie die App: nur im vom Server gemeldeten Takt, nie schneller als 5 s
+        # (Mitsubishi drosselt bei zu vielen Anfragen)
+        interval = max(self._num(result.get("pollingInterval"), POLL_INTERVAL_DEFAULT_S),
+                       POLL_INTERVAL_DEFAULT_S)
+        duration = min(self._num(result.get("duration"), POLL_DURATION_DEFAULT_S), POLL_DURATION_MAX_S)
+        waited = 0.0
+        while waited < duration:
+            await asyncio.sleep(interval)
+            waited += interval
+            data = await self._kintaro_post(
+                EP_BATCH_REQUEST_STATUS, {"requestIdList": [{"requestId": request_id}]})
+            status = None
+            if isinstance(data, dict):
+                for item in data.get("requestStatusList") or []:
+                    if isinstance(item, dict) and str(item.get("requestId")) == str(request_id):
+                        status = item.get("status")
+                        break
+            try:
+                status = int(status) if status is not None else None
+            except (TypeError, ValueError):
+                status = None
+            self.last_command_status = status
+            if status is None or status == 1:
+                continue
+            if status == 2:
+                self._last_result = "ok"
+                self.last_error_code = None
+                _LOGGER.debug("%s requestId=%s: Fahrzeug hat ausgefuehrt (Status 2)", endpoint, request_id)
+                return True
+            self._last_result = "rejected"
+            self.last_error_code = f"{ERR_VEHICLE_REJECTED}:{status}"
+            _LOGGER.warning(
+                "%s [Region=%s]: vom Fahrzeug abgelehnt, requestId=%s, Status %s",
+                endpoint, self._label, request_id, status,
+            )
+            return False
+        self._last_result = "no_response"
+        self.last_error_code = ERR_VEHICLE_NO_RESPONSE
+        _LOGGER.warning(
+            "%s [Region=%s]: keine Antwort vom Fahrzeug nach %s s, requestId=%s, letzter Status %s",
+            endpoint, self._label, int(duration), request_id, self.last_command_status,
+        )
+        return False
+
+    async def _send_vehicle_command(self, vin: str, endpoint: str, extra: dict | None = None) -> bool:
+        """Ein Fernbefehl: Wecken, frischer Hash, Befehl, requestId-Polling. Kein Nachversuch."""
+        self._last_result = "failed"
+        try:
+            return await self._send_vehicle_command_inner(vin, endpoint, extra)
+        finally:
+            command = endpoint.strip("/").split("/")[1] if "/" in endpoint.strip("/") else endpoint
+            entry = {
+                "command": command,
+                "result": self._last_result,
+                "request_id": self.last_request_id,
+                "status": self.last_command_status,
+                "error": self.last_error_code,
+                "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            if endpoint in (EP_START_CLIMATE, EP_STOP_CLIMATE, EP_START_ENGINE, EP_STOP_ENGINE):
+                self.last_climate_command[vin] = entry
+            _LOGGER.info(
+                "Fernbefehl %s [Region=%s]: Ergebnis %s, requestId=%s, Status %s, Fehler %s",
+                command, self._label, entry["result"], entry["request_id"],
+                entry["status"], entry["error"],
+            )
+
+    async def _send_vehicle_command_inner(self, vin: str, endpoint: str, extra: dict | None) -> bool:
+        self.begin_cycle()
+        self.last_request_id = None
+        self.last_command_status = None
+        try:
             internal_vin = self._internal_vins.get(vin, vin)
-            result = await self._kintaro_post(endpoint, {
-                "vin": vin, "internalVin": internal_vin, "pinHash": self._pin_hash,
-            })
+            await self._wake_vehicle(vin, internal_vin)
+            result = await self._post_command(vin, internal_vin, endpoint, extra)
+            if result is None:
+                return False
+            return await self._await_command_result(endpoint, result)
         except ForceLogoutError as err:
             _LOGGER.warning("%s", err)
             self.last_error_code = FORCE_LOGOUT_CODE
@@ -1452,28 +1624,31 @@ class MitsubishiEUClient:
             _LOGGER.warning("%s", err)
             self.last_error_code = "no_session"
             return False
-        return result is not None
+
+    async def _remote_command(self, vin: str, endpoint: str) -> bool:
+        """Generischer Remote-Command {vin, internalVin, pinHash} mit frischem Hash."""
+        return await self._send_vehicle_command(vin, endpoint)
+
+    def _climate_extra(self, vin: str, temperature: float | None) -> dict:
+        """Body-Zusatz wie MMCStartClimateRequest der App (startClimate und startEngine)."""
+        climate = self._last_climate.get(vin) or {}
+        temp = temperature
+        if temp is None:
+            temp = climate.get("targetTemperature")
+        try:
+            temp = float(temp)
+        except (TypeError, ValueError):
+            temp = 25.0
+        extra: dict = {"targetTemperature": f"{temp:.1f}", "temperatureUnit": "C"}
+        hvac = climate.get("hvacSettings")
+        if isinstance(hvac, dict):
+            extra["hvacSettings"] = hvac
+        return extra
 
     async def async_start_climate(self, vin: str, temperature: float | None = None) -> bool:
-        """Klimaanlage starten, optional mit Zieltemperatur."""
-        self.begin_cycle()
-        try:
-            if not await self._ensure_pin(vin):
-                return False
-            internal_vin = self._internal_vins.get(vin, vin)
-            body: dict = {"vin": vin, "internalVin": internal_vin, "pinHash": self._pin_hash}
-            if temperature is not None:
-                body["targetTemperature"] = temperature
-            result = await self._kintaro_post(EP_START_CLIMATE, body)
-        except ForceLogoutError as err:
-            _LOGGER.warning("%s", err)
-            self.last_error_code = FORCE_LOGOUT_CODE
-            return False
-        except ConnectionError as err:
-            _LOGGER.warning("%s", err)
-            self.last_error_code = "no_session"
-            return False
-        return result is not None
+        """Klimaanlage starten (Body wie App: Temperatur als String, Einheit, hvacSettings)."""
+        return await self._send_vehicle_command(
+            vin, EP_START_CLIMATE, self._climate_extra(vin, temperature))
 
     async def async_stop_climate(self, vin: str) -> bool:
         return await self._remote_command(vin, EP_STOP_CLIMATE)
@@ -1496,8 +1671,10 @@ class MitsubishiEUClient:
     async def async_lights(self, vin: str) -> bool:
         return await self._remote_command(vin, EP_START_LIGHT)
 
-    async def async_start_engine(self, vin: str) -> bool:
-        return await self._remote_command(vin, EP_START_ENGINE)
+    async def async_start_engine(self, vin: str, temperature: float | None = None) -> bool:
+        """Motor (Vorklimatisierung) starten, gleicher Body wie startClimate (App 3.2.0)."""
+        return await self._send_vehicle_command(
+            vin, EP_START_ENGINE, self._climate_extra(vin, temperature))
 
     async def async_stop_engine(self, vin: str) -> bool:
         return await self._remote_command(vin, EP_STOP_ENGINE)

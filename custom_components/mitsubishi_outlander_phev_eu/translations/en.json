@@ -144,6 +144,12 @@
   "exceptions": {
     "command_rejected": {
       "message": "Mitsubishi Connect rejected the command {command} (error {code})."
+    },
+    "vehicle_no_response": {
+      "message": "The vehicle did not respond to the command {command}. It was not sent again; try again later or check the car."
+    },
+    "vehicle_rejected": {
+      "message": "The vehicle rejected the command {command} (status {status})."
     }
   },
   "selector": {

@@ -251,6 +251,12 @@
   "exceptions": {
     "command_rejected": {
       "message": "Mitsubishi Connectがコマンド {command} を拒否しました（エラー {code}）。"
+    },
+    "vehicle_no_response": {
+      "message": "車両がコマンド {command} に応答しませんでした。再送信はしていません。後でもう一度お試しいただくか、車両を確認してください。"
+    },
+    "vehicle_rejected": {
+      "message": "車両がコマンド {command} を拒否しました（ステータス {status}）。"
     }
   },
   "selector": {

@@ -14,7 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
-from .coordinator import MitsubishiEUEntity
+from .coordinator import MitsubishiEUEntity, raise_command_rejected
 
 DELAYED_REFRESH = 15  # Sekunden warten bevor Status aktualisiert wird
 
@@ -73,35 +73,56 @@ class MitsubishiClimateEntity(MitsubishiEUEntity, ClimateEntity):
             return self.vehicle_state.target_temperature
         return None
 
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """b10: Ergebnis des letzten Klimabefehls, wie am Klima-Schalter."""
+        last = getattr(self._client, "last_climate_command", {}).get(self._vin)
+        return {"last_command": dict(last)} if last else None
+
+    async def _async_command(self, mode: HVACMode, temp: float | None, call, command: str) -> None:
+        """b10: sofort optimistisch anzeigen, dann das echte Ergebnis abwarten (Wecken +
+        requestId-Polling im Client). Fehler oder keine Antwort: zurueck auf den alten
+        Zustand und verstaendliche Fehlermeldung."""
+        self._optimistic_mode = mode
+        self._optimistic_temp = temp
+        self.async_write_ha_state()
+        try:
+            ok = await call()
+        except Exception:
+            ok = None
+            raise
+        finally:
+            if not ok:
+                self._optimistic_mode = None
+                self._optimistic_temp = None
+                self.async_write_ha_state()
+        if not ok:
+            raise_command_rejected(self._client, self._vin, command)
+        await asyncio.sleep(DELAYED_REFRESH)
+        await self.coordinator.async_request_refresh()
+        self._optimistic_mode = None
+        self._optimistic_temp = None
+        self.async_write_ha_state()
+
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
         if hvac_mode == HVACMode.HEAT_COOL:
             temp = self.target_temperature or DEFAULT_TEMP
-            if await self._client.async_start_climate(self._vin, temperature=temp):
-                self._optimistic_mode = HVACMode.HEAT_COOL
-                self._optimistic_temp = temp
-                self.async_write_ha_state()
-                await asyncio.sleep(DELAYED_REFRESH)
-                self._optimistic_mode = None
-                self._optimistic_temp = None
-                await self.coordinator.async_request_refresh()
+            await self._async_command(
+                HVACMode.HEAT_COOL, temp,
+                lambda: self._client.async_start_climate(self._vin, temperature=temp),
+                "startClimate")
         elif hvac_mode == HVACMode.OFF:
-            if await self._client.async_stop_climate(self._vin):
-                self._optimistic_mode = HVACMode.OFF
-                self.async_write_ha_state()
-                await asyncio.sleep(DELAYED_REFRESH)
-                self._optimistic_mode = None
-                await self.coordinator.async_request_refresh()
+            await self._async_command(
+                HVACMode.OFF, None,
+                lambda: self._client.async_stop_climate(self._vin),
+                "stopClimate")
 
     async def async_set_temperature(self, **kwargs) -> None:
         temperature = kwargs.get("temperature")
         if temperature is None:
             return
         # Klimaanlage starten (oder Temperatur aktualisieren wenn schon an)
-        if await self._client.async_start_climate(self._vin, temperature=temperature):
-            self._optimistic_mode = HVACMode.HEAT_COOL
-            self._optimistic_temp = temperature
-            self.async_write_ha_state()
-            await asyncio.sleep(DELAYED_REFRESH)
-            self._optimistic_mode = None
-            self._optimistic_temp = None
-            await self.coordinator.async_request_refresh()
+        await self._async_command(
+            HVACMode.HEAT_COOL, temperature,
+            lambda: self._client.async_start_climate(self._vin, temperature=temperature),
+            "startClimate")
