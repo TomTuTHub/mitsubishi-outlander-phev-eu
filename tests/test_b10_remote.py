@@ -491,7 +491,7 @@ def test_location_still_uses_remembered_hash():
 
 def test_manifest_version_b10():
     m = json.loads((_PKG / "manifest.json").read_text(encoding="utf-8"))
-    assert m["version"].startswith("1.1.0b1")  # b11 baut auf b10 auf
+    assert m["version"].startswith("1.1.0")  # b10-Stand ist in 1.1.0
 
 
 # ---------------------------------------------------------------- Entitaeten

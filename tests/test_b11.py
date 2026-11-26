@@ -353,4 +353,4 @@ def test_engine_switch_failure_same_error(no_sleep):
 
 def test_manifest_version_b11():
     m = json.loads((_PKG / "manifest.json").read_text(encoding="utf-8"))
-    assert m["version"] == "1.1.0b11"
+    assert m["version"] == "1.1.0"
